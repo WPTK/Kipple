@@ -23,7 +23,7 @@ func TestOPMLImportRefusesNonOPMLAndEmpty(t *testing.T) {
 		{"json", `{"error":"not_found"}`, "not_opml"},
 		{"folders only", `<opml><body><outline text="Empty"/></body></opml>`, `"message":"that OPML file has no feeds in it"`},
 		// Issue #467: an entity nobody defines refuses the file.
-		{"entity", `<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, `"opml_entity","message":"\u0026x; on line 1 is not an entity XML or HTML defines"`},
+		{"entity", `<opml><body><outline text="&x;"><outline xmlUrl="https://a.test/f"/></outline></body></opml>`, `"opml_entity","message":"&x; on line 1 is not an entity XML or HTML defines"`},
 	} {
 		rec := h.do("POST", "/api/opml", tc.body, withCookie(c))
 		require.Equal(t, http.StatusBadRequest, rec.Code, tc.name)

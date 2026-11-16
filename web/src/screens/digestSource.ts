@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { InfiniteQueryObserver, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
-import { itemsQuery, keys, scopeKey, SECTION_SUFFIX, useBootstrap } from "@/api/queries";
+import { itemsQuery, keys, LIST_KEEP_MS, scopeKey, SECTION_SUFFIX, useBootstrap } from "@/api/queries";
 import type { Card, Feed, Folder, ItemsPage, Scope } from "@/api/types";
 import { sectionsFor, useDevicePrefs, type DigestOrder, type DigestSections } from "@/lib/devicePrefs";
 import { chainOf, folderTree } from "@/lib/folderTree";
@@ -21,7 +21,8 @@ import type { ListSource } from "./listSource";
  *
  * The page is a snapshot, like every list: the sections it lists, and their order, are those of the moment it was
  * opened (or last started over), so a count that moves while the reader reads never adds, drops or moves a section
- * under them.
+ * under them. A refresh that ends does not reload it either: its cards belong to its sections, so there is no one list
+ * to compare with what arrived.
  */
 
 /** Sections asked for when the page opens. */
@@ -41,11 +42,6 @@ interface Place {
 const FRESH: Place = { steps: 0, presses: new Map() };
 const PLACES_MAX = 50;
 const places = createStore<ReadonlyMap<string, Place>>(new Map());
-/**
- * How long the page a reader left is kept as it was: the time the section lists stay in the query cache (its default
- * garbage collection), after which a return starts a new page, so a folder that gained its first unread article shows.
- */
-const SNAPSHOT_KEEP_MS = 5 * 60_000;
 /**
  * What each list showed when it was opened: its sections in order, the unread count of each as the bootstrap said then
  * (the page counts "N more" from it, so a count that moves under the reader does not), the Sections and Order settings
@@ -154,8 +150,10 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   const listKey = scopeKey(scope);
   const sig = `${input.sections}|${input.order}|${input.arrivals?.visit ?? ""}`;
   let fixed = opened.get(listKey);
-  // Time away counts only while no hook uses the page: one that is mounted keeps it, however long the reader reads.
-  const away = !consumers.has(listKey) && fixed?.left != null && Date.now() - fixed.left > SNAPSHOT_KEEP_MS;
+  // The page a reader left is kept as long as its section lists stay cached (LIST_KEEP_MS, the one number for both); a
+  // return after that starts a new page, so a folder that gained its first unread article shows. Time away counts only
+  // while no hook uses the page: one that is mounted keeps it, however long the reader reads.
+  const away = !consumers.has(listKey) && fixed?.left != null && Date.now() - fixed.left >= LIST_KEEP_MS;
   if (fixed && (fixed.sig !== sig || away)) fixed = undefined;
   if (!fixed) {
     // On the New page a section's count is what arrived since the mark; a section the visit did not list has none.

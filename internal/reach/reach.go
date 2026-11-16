@@ -284,6 +284,11 @@ func (st *State) publicOrigin(hostHeader string) bool {
 	if err != nil || !strings.EqualFold(u.Scheme, "https") {
 		return false
 	}
+	// NormalizeHost also takes a bare IPv6 literal (for the allowed-host gate), whose port cannot be read: a browser
+	// always brackets one, so only that form can be the public origin.
+	if !strings.HasPrefix(hostHeader, "[") && strings.Count(hostHeader, ":") > 1 {
+		return false
+	}
 	h, ok := setup.NormalizeHost(hostHeader)
 	if !ok || h != st.PublicHost {
 		return false

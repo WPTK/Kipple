@@ -39,11 +39,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	dview, err := s.deviceView(r, dv)
-	if err != nil {
-		fail(err)
-		return
-	}
+	dview := s.deviceView(dv, settings)
 	folders, err := s.db.UIFolders(ctx)
 	if err != nil {
 		fail(err)

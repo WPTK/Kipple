@@ -5,6 +5,7 @@ import { api, authStore } from "./client";
 import { filtersKey } from "./filters";
 import { wasFilterTouched } from "./filterEdits";
 import { countsGuardLeft, dropFromLists, invalidateLists, keys, patchItems, type BootstrapAnswer, type ItemPatch } from "./queries";
+import { PAGE_SIZE, SECTION_SUFFIX, itemsParams } from "./queryKeys";
 import { SAVED_COUNTS_MIN_MS, invalidateSavedSearches, refreshSavedSearchCounts, resetSavedSearchCounts } from "./savedSearches";
 import { announce } from "@/shell/toasts";
 import { createStore } from "@/lib/store";
@@ -14,6 +15,8 @@ import {
   type Bootstrap,
   type CountsEvent,
   type RunStatus,
+  type ItemsPage,
+  type Scope,
   type ServerEvent,
   type StatusResponse,
 } from "./types";
@@ -45,6 +48,18 @@ export interface LiveState {
    * event does not have (the server throttles those to one per 500 ms). Bounded and short lived.
    */
   finished: Record<string, FinishedRun>;
+  /**
+   * How many manual refreshes have ended (by `run.done`, or by a status answer that stopped listing the run; a run
+   * counts once). The open list reacts to a change by asking whether articles arrived since it loaded.
+   */
+  refreshes: number;
+  /**
+   * How many fetches have brought in new articles, by feed id, whatever started them (a poll, a new feed's first fetch,
+   * an import). A list that is empty reloads when the feeds it covers have a higher count than `arrivalsHandled` holds for that list.
+   */
+  arrivals: Record<string, number>;
+  /** The arrivals (summed over a list's feeds) each list, by its scope, has already reloaded for or loaded with. Kept here so it outlives the pane. */
+  arrivalsHandled: Record<string, number>;
   transport: "connecting" | "open" | "fallback";
 }
 
@@ -76,6 +91,9 @@ export const initialLive: LiveState = {
   ended: {},
   lastId: 0,
   finished: {},
+  refreshes: 0,
+  arrivals: {},
+  arrivalsHandled: {},
   transport: "connecting",
 };
 
@@ -107,6 +125,8 @@ function markFinished(s: LiveState, id: string, done: Omit<FinishedRun, "at" | "
     seq: restSeq,
     ended: { ...s.ended, [id]: true },
     finished: { ...Object.fromEntries(kept), [id]: { ...done, seq, at: now } },
+    // A run a poll already ended is not counted again when its run.done arrives.
+    refreshes: done.kind === "manual" && !s.finished[id] ? s.refreshes + 1 : s.refreshes,
   };
 }
 
@@ -185,11 +205,14 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
       );
     }
     case "fetch.done": {
-      if (!(ev.data.new_items > 0) || !isManualTrigger(ev.data.trigger)) return s;
+      if (!(ev.data.new_items > 0)) return s;
       const feed = String(ev.data.feed_id);
+      const arrivals = { ...s.arrivals, [feed]: (s.arrivals[feed] ?? 0) + 1 };
+      if (!isManualTrigger(ev.data.trigger)) return { ...s, arrivals };
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
         ...s,
+        arrivals,
         pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + ev.data.new_items },
         pendingIds: ids.length ? { ...s.pendingIds, [feed]: [...(s.pendingIds[feed] ?? []), ...ids].slice(-PENDING_IDS_CAP) } : s.pendingIds,
       };
@@ -238,7 +261,7 @@ export function pendingFor(
   loaded?: { ids: ReadonlySet<string>; pendingIds: Record<string, string[]> },
 ): number {
   // A search or an article length filter may not take a new article in: nothing is promised.
-  if (scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest") return 0;
+  if (!showsPill(scope)) return 0;
   const count = (id: string): number => {
     const n = pending[id] ?? 0;
     if (!loaded || n === 0) return n;
@@ -336,6 +359,8 @@ export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
 export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number, reconciled = false): void {
   // The run's kind is in `finished` when a status poll already ended it.
   const runKind = ev.type === "run.done" ? (liveStore.get().runs[String(ev.data.run_id)]?.kind ?? liveStore.get().finished[String(ev.data.run_id)]?.kind) : undefined;
+  // A run.done for a run a status poll already ended finds it in `finished`: it does nothing a second time.
+  const already = ev.type === "run.done" && !!liveStore.get().finished[String(ev.data.run_id)];
   liveStore.set((s) => reduceEvent(s, ev, id));
   // The Feed index shows each feed's newest articles with their read state: whatever moves a count or a feed makes it stale.
   if (ev.type === "items.state" || ev.type === "counts" || ev.type === "feed.changed" || ev.type === "resync") void qc.invalidateQueries({ queryKey: keys.feedsLatest });
@@ -396,6 +421,12 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       break;
     case "fulltext.ready":
       for (const id of ev.data.ids) void qc.invalidateQueries({ queryKey: keys.item(id) });
+      break;
+    case "run.done":
+      // A refresh the reader asked for makes the lists that are not on screen stale, whatever fetched the articles: a
+      // scheduled poll's arrivals raise no pill. The list on screen is the reader's snapshot: it asks for itself (the
+      // live state's `refreshes`). `ev.data.kind` covers a run the live state never knew (the server always sends it).
+      if (!already && (runKind ?? ev.data.kind) === "manual") staleOffScreenLists(qc);
       break;
     case "resync":
       // The server says it cannot replay what we missed: only then are the lists refetched. A run.done among the
@@ -472,6 +503,57 @@ function applyAnswer(runs: RunStatus[], asOf: number, complete: boolean): string
 }
 
 /**
+ * Lists nothing is showing reload the next time they are opened; the one on screen is left as it is (not asked again).
+ * The list an open article came from counts as shown: the article's Next and Previous hold it (useListOrder), on a phone
+ * too, so Back returns to it as it was left. A Digest's sections are not marked: their cards belong to the page.
+ */
+function staleOffScreenLists(qc: QueryClient): void {
+  void qc.invalidateQueries({
+    queryKey: keys.itemsAll,
+    refetchType: "none",
+    predicate: (q) => {
+      const key = String(q.queryKey[1]);
+      return q.getObserversCount() === 0 && !key.endsWith(SECTION_SUFFIX);
+    },
+  });
+}
+
+/** Whether a list of this scope shows the "n new" pill (see `pendingFor`). */
+const showsPill = (scope: { view: string; q?: string; order?: string; length?: string }): boolean =>
+  !(scope.view === "starred" || scope.view === "muted" || scope.q || scope.length || scope.order === "oldest");
+
+/** Whether article id `a` is newer than `bound`: ids only increase, and are numbers written as strings. */
+const idAfter = (a: string, b: string): boolean => (a.length !== b.length ? a.length > b.length : a > b);
+
+/** How long the look for arrivals may take: a pill is a convenience, not a reason to wait on a slow server. */
+const ARRIVALS_TIMEOUT_MS = 3000;
+
+/**
+ * Ask whether articles arrived since a list loaded, and count them as pending (the "n new" pill). The newest page of the
+ * scope is read; an article is new when its id is above the list's own `asOf` (the newest id when it loaded) and the
+ * list does not hold it. Older articles that merely entered the scope (an unread one after the loaded ones were read)
+ * are not new. Those the pill already counts are not counted twice, and a count that came without ids is not added to.
+ * Returns how many arrived, 0 for a scope with no pill.
+ */
+export async function noteArrivals(scope: Scope, loaded: ReadonlySet<string>, asOf: string | undefined): Promise<number> {
+  if (!showsPill(scope)) return 0;
+  const page = await api<ItemsPage>("/api/items", { params: itemsParams(scope, undefined, PAGE_SIZE), signal: AbortSignal.timeout(ARRIVALS_TIMEOUT_MS) });
+  const fresh = page.items.filter((c) => !loaded.has(c.id) && idAfter(c.id, asOf ?? "0"));
+  liveStore.set((s) => {
+    const known = new Set(Object.values(s.pendingIds).flat());
+    const add = fresh.filter((c) => !known.has(c.id));
+    if (add.length === 0) return s;
+    const pendingByFeed = { ...s.pendingByFeed };
+    const pendingIds = { ...s.pendingIds };
+    for (const c of add) pendingIds[c.feed_id] = [...(pendingIds[c.feed_id] ?? []), c.id].slice(-PENDING_IDS_CAP);
+    // A fetch.done count with no ids may already stand for these articles: the count is raised to the ids known, not added to.
+    for (const f of new Set(add.map((c) => c.feed_id))) pendingByFeed[f] = Math.max(pendingByFeed[f] ?? 0, pendingIds[f]!.length);
+    return { ...s, pendingByFeed, pendingIds };
+  });
+  return fresh.length;
+}
+
+/**
  * Poll GET /api/status once and fold it into the cache and live state. A run the answer no longer lists is over, if the
  * answer is newer than what the live state knows about it (a stale answer, or one built before a run the 202 body
  * just announced, changes nothing).
@@ -483,13 +565,16 @@ export async function pollStatus(qc: QueryClient): Promise<StatusResponse> {
     old ? { ...old, counts: { ...old.counts, unread: st.unread_total, ...(typeof st.muted === "number" ? { muted: st.muted } : {}) } } : old,
   );
   if (ended.length) void qc.invalidateQueries({ queryKey: keys.bootstrap });
+  // The end of a manual refresh that came without its run.done: the lists are made stale here as they are on the event.
+  const finished = liveStore.get().finished;
+  if (ended.some((id) => finished[id]?.kind === "manual")) staleOffScreenLists(qc);
   return { ...st, runs: st.runs ?? [] };
 }
 
 /**
  * After a gap in the stream: reconcile runs and counts from the server instead of trusting events that
- * were never delivered. Lists are deliberately not refetched (a list is a snapshot; the "n new" pill and
- * the stale marker tell the user); only counts and the feed tree refresh.
+ * were never delivered. Lists are not refetched here (a list is a snapshot; the "n new" pill tells the user)
+ * unless a manual refresh ended in the gap; only counts and the feed tree refresh otherwise.
  */
 async function reconcile(qc: QueryClient): Promise<void> {
   await pollStatus(qc);

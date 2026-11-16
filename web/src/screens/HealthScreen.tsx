@@ -26,6 +26,7 @@ import { CheckboxBox, Disclosure, Modal, Notice, Skeleton, inputCls } from "@/ui
 import { EmptyState } from "@/ui/EmptyState";
 import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
+import { RevealMore, useReveal } from "@/lib/reveal";
 import { StatusChip } from "./StatusChip";
 import { RepairButtons } from "./FeedRepair";
 import { DeleteDialog, ToggleDialog } from "./feeds/BulkActions";
@@ -131,7 +132,7 @@ function LogDialog({ feed, onClose }: { feed: HealthFeed; onClose: () => void })
   );
 }
 
-function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLog: () => void }) {
+function Actions({ f, revealKey, onEdit, onLog }: { f: HealthFeed; revealKey: string; onEdit: () => void; onLog: () => void }) {
   const qc = useQueryClient();
   const done = () => invalidateFeeds(qc);
   const run = async (fn: () => Promise<unknown>, ok: string, what: string) => {
@@ -147,7 +148,7 @@ function Actions({ f, onEdit, onLog }: { f: HealthFeed; onEdit: () => void; onLo
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Actions for ${f.title}`}>
+        <Button variant="ghost" size="icon" aria-label={`Actions for ${f.title}`} data-reveal-key={revealKey}>
           <MoreIcon aria-hidden="true" />
         </Button>
       </DropdownMenu.Trigger>
@@ -340,13 +341,20 @@ export function HealthScreen() {
   };
   const check = (id: string) => setSel((s) => toggleIn(s, id));
   const shownIds = useMemo(() => feeds.map((f) => f.id), [feeds]);
+  // A library of thousands of feeds draws its rows a step at a time, as the Feeds screen does (issue #463). Select all
+  // takes every feed that matches the filter, drawn or not, so the Delete and Pause dialogs say how many of the feeds
+  // they act on are not drawn yet.
+  const reveal = useReveal(shownIds);
+  const drawn = useMemo(() => feeds.filter((f) => reveal.shown(f.id)), [feeds, reveal]);
   // A filter or search can hide feeds that are still ticked. Everything that counts or acts on the selection
-  // uses only the ticked feeds still on screen, so a bulk Delete or Pause never touches a feed you can't see.
+  // uses only the ticked feeds that match the filter, drawn or not, so a bulk Delete or Pause never touches a feed the
+  // filter has hidden.
   const shownSel = useMemo(() => new Set(shownIds.filter((id) => sel.has(id))), [shownIds, sel]);
   const allShownSelected = groupState(shownIds, sel) === "all";
   // Feed Health's own rows (HealthFeed) don't carry folder_id/starred_count; the bulk dialogs work on the
   // full Feed from the bootstrap, matched by id.
   const selectedFeeds: Feed[] = useMemo(() => (boot.data?.feeds ?? []).filter((f) => shownSel.has(f.id)), [boot.data?.feeds, shownSel]);
+  const notDrawn = selectedFeeds.filter((f) => !reveal.shown(f.id)).length;
   // Retry now fetches the selected feeds that are not paused, one at a time (a paused feed is resumed, not retried),
   // and says how many still fail, are still fetching, or were skipped for being paused. One toast at the end, not one
   // per feed.
@@ -467,7 +475,7 @@ export function HealthScreen() {
           )}
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div data-reveal-root="" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {h.isPending ? <Skeleton rows={5} label="Loading feed health" /> : null}
         {h.isError ? (
           <Notice tone="error">
@@ -562,7 +570,7 @@ export function HealthScreen() {
                   </tr>
                 </thead>
                 <tbody>
-                  {feeds.map((f) => (
+                  {drawn.map((f) => (
                     <tr key={f.id} className="border-b border-line align-top">
                       <td className="w-9 py-2 pr-1">
                         {selecting ? (
@@ -582,7 +590,7 @@ export function HealthScreen() {
                       <td className="px-3 py-2 whitespace-nowrap">{whenLabel(f.last_success_at)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{f.enabled ? whenLabel(f.next_fetch_at) : "Paused"}</td>
                       <td className="px-3 py-1">
-                        <Actions f={f} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
+                        <Actions f={f} revealKey={f.id} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
                       </td>
                     </tr>
                   ))}
@@ -590,7 +598,7 @@ export function HealthScreen() {
               </table>
             ) : (
               <ul className="flex flex-col gap-2">
-                {feeds.map((f) => (
+                {drawn.map((f) => (
                   <li key={f.id} className="rounded-xl border border-line bg-surface p-3">
                     <div className="flex items-start gap-2">
                       {/* The slot is there with Select off too, so the names do not move when it is turned on. */}
@@ -609,7 +617,7 @@ export function HealthScreen() {
                           {f.consecutive_failures > 0 ? <span className="block text-xs text-fg2">{f.consecutive_failures} failed in a row</span> : null}
                         </div>
                       </div>
-                      <Actions f={f} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
+                      <Actions f={f} revealKey={f.id} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
                     </div>
                     <p className="mt-1 text-xs text-fg2">{statusInfo(f.status).hint}</p>
                     <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs">
@@ -624,6 +632,7 @@ export function HealthScreen() {
                 ))}
               </ul>
             )}
+                <RevealMore reveal={reveal} noun="feeds" />
               </>
             )}
             {d.reader_last_seen_at ? <p className="mt-4 text-xs text-fg2">A sync app was last seen {whenLabel(Math.min(d.reader_last_seen_at, Date.now() / 1000)).toLowerCase()}.</p> : null}
@@ -683,13 +692,14 @@ export function HealthScreen() {
       {bulk === "delete" ? (
         <DeleteDialog
           feeds={selectedFeeds}
+          notDrawn={notDrawn}
           onClose={() => setBulk(null)}
           onDone={exitSelect}
         />
       ) : null}
       {deleting ? <DeleteDialog feeds={[deleting]} onClose={() => setDeleting(null)} onDone={() => undefined} /> : null}
       {bulk === "enable" || bulk === "disable" ? (
-        <ToggleDialog feeds={selectedFeeds} enable={bulk === "enable"} onClose={() => setBulk(null)} onDone={exitSelect} />
+        <ToggleDialog feeds={selectedFeeds} notDrawn={notDrawn} enable={bulk === "enable"} onClose={() => setBulk(null)} onDone={exitSelect} />
       ) : null}
     </div>
   );

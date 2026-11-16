@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/WPTK/kipple/internal/store"
@@ -225,33 +227,52 @@ func (r *SQL) RecordStars(tx *sql.Tx, kind, client string, ids []int64) error {
 	}
 	now := r.now()
 	lt := now.In(store.Zone(ctx, tx))
-	feeds := map[int64]store.StatSnapshot{}
+	row := store.StatRow{
+		TS: now.Unix(), LocalDate: lt.Format("2006-01-02"), LocalHour: lt.Hour(), LocalWeekday: int(lt.Weekday()),
+		Kind: kind, Client: client,
+	}
+	seen := make(map[int64]struct{}, len(ids)) // a repeated id records one event, live or ledger
+	uniq := ids[:0:0]
 	for _, id := range ids {
-		feedID, title, url, ok, err := store.StatItemBasics(ctx, tx, id)
+		if _, dup := seen[id]; !dup {
+			seen[id] = struct{}{}
+			uniq = append(uniq, id)
+		}
+	}
+	ids = uniq
+	byFeed, err := store.StatItemFeeds(ctx, tx, ids)
+	if err != nil {
+		return err
+	}
+	live := make(map[int64]struct{}, len(ids))
+	for _, feedID := range slices.Sorted(maps.Keys(byFeed)) {
+		snap, err := store.StatFeedSnapshot(ctx, tx, feedID)
 		if err != nil {
 			return err
 		}
-		var snap store.StatSnapshot
-		if ok {
-			var cached bool
-			if snap, cached = feeds[feedID]; !cached {
-				if snap, err = store.StatFeedSnapshot(ctx, tx, feedID); err != nil {
-					return err
-				}
-				feeds[feedID] = snap
-			}
-			snap.ItemTitle, snap.ItemURL = title, url
-		} else if snap, ok, err = store.StatItemSnapshot(ctx, tx, id); err != nil {
+		row.FeedID, row.FeedTitle, row.FolderID, row.FolderName = snap.FeedID, snap.FeedTitle, snap.FolderID, snap.FolderName
+		if err := store.InsertItemStats(ctx, tx, row, byFeed[feedID]); err != nil {
 			return err
-		} else if !ok {
+		}
+		for _, id := range byFeed[feedID] {
+			live[id] = struct{}{}
+		}
+	}
+	for _, id := range ids { // a ledger id, or one that is gone: one by one
+		if _, ok := live[id]; ok {
 			continue
 		}
-		if err := store.InsertStat(ctx, tx, store.StatRow{
-			TS: now.Unix(), LocalDate: lt.Format("2006-01-02"), LocalHour: lt.Hour(), LocalWeekday: int(lt.Weekday()),
-			Kind: kind, Client: client, ItemID: id,
-			FeedID: snap.FeedID, FeedTitle: snap.FeedTitle, FolderID: snap.FolderID, FolderName: snap.FolderName,
-			ItemTitle: snap.ItemTitle, ItemURL: snap.ItemURL,
-		}); err != nil {
+		snap, ok, err := store.StatItemSnapshot(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		row.ItemID = id
+		row.FeedID, row.FeedTitle, row.FolderID, row.FolderName = snap.FeedID, snap.FeedTitle, snap.FolderID, snap.FolderName
+		row.ItemTitle, row.ItemURL = snap.ItemTitle, snap.ItemURL
+		if err := store.InsertStat(ctx, tx, row); err != nil {
 			return err
 		}
 	}

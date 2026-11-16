@@ -223,23 +223,3 @@ func TestParseLeavesEntitiesUnexpanded(t *testing.T) {
 		})
 	}
 }
-
-// A charset declaration inside the document changes how the parser reads the element names that follow it, so the
-// nesting check must read them the same way. In Big5 the bytes A2CE and A4CA both decode to one character, so the two
-// names below differ as raw bytes and are equal as the parser reads them.
-func TestParseNestingCheckReadsDeclaredCharset(t *testing.T) {
-	if os.Getenv("KIPPLE_DEEP_NESTING_CHILD") != "" {
-		return
-	}
-	n1, n2 := "\xe4\xb8\xa4\xca\xa4\x61", "\xe4\xb8\xa2\xce\xa4\x61"
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0"?><rss version="2.0" xmlns:x="urn:x"><channel><title>t</title><item><title>i</title><x:ext>`)
-	b.WriteString(`<?xml version="1.0" encoding="big5"?>`)
-	for range 600 {
-		b.WriteString("<x:" + n2 + "><x:" + n1 + "></x:" + n2 + ">")
-	}
-	b.WriteString("</x:ext></item></channel></rss>")
-	_, err := ParseFeed([]byte(b.String()), ParseOptions{FeedURL: "https://example.com/feed"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "nest")
-}

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/WPTK/kipple/internal/extract"
+	"github.com/WPTK/kipple/internal/fetch"
 	"github.com/WPTK/kipple/internal/store"
 )
 
@@ -228,11 +229,13 @@ func (r *Runner) safeExtract(ctx context.Context, t extract.Target) (res extract
 	return r.ext.Extract(ctx, t)
 }
 
-// HostKey is the per-article-host limit key of an article URL. The ingest
+// HostKey is the per-article-site limit key of an article URL: the site the
+// host belongs to (fetch.SiteKey), not the host name and port, so one
+// publisher's links share one limit however many names they use. The ingest
 // queue in internal/sched groups by the same key, so the two limits cannot drift.
 func HostKey(raw string) string {
-	if u, err := url.Parse(raw); err == nil && u.Host != "" {
-		return u.Host
+	if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+		return fetch.SiteKey(u.Hostname())
 	}
 	return "?"
 }

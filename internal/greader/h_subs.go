@@ -68,7 +68,7 @@ func (c *call) subscriptionList() {
 			Categories: []categoryJSON{{ID: labelPrefix + s.Folder, Label: s.Folder}},
 		}
 		if icons && s.IconHash != "" {
-			j.IconURL = pub + apiPrefix + "/icon/" + strconv.FormatInt(s.ID, 10) + "-" + s.IconHash
+			j.IconURL = pub + apiPrefix + "/icon/" + strconv.FormatInt(s.ID, 10) + "-" + s.IconHash + "-" + iconMAC(c.acct.secret, s.ID, s.IconHash)
 		}
 		out = append(out, j)
 	}
@@ -89,15 +89,28 @@ func (c *call) tagList() {
 	c.jsonETag(map[string]any{"tags": tags})
 }
 
-// icon serves feed icons, unauthenticated, only while greader.icon_urls is on.
+// icon serves feed icons, only while greader.icon_urls is on and only for a URL that
+// subscription/list built: image loaders send no token, so the URL itself carries the proof.
 func (c *call) icon(rest string) {
 	if !c.a.db.BoolSetting(c.r.Context(), "greader.icon_urls", true) {
 		c.text(http.StatusNotFound, "Not Found")
 		return
 	}
-	idStr, hash, ok := strings.Cut(rest, "-")
+	idStr, tail, ok := strings.Cut(rest, "-")
+	hash, mac, signed := strings.Cut(tail, "-")
 	id, err := strconv.ParseInt(idStr, 10, 64)
-	if !ok || err != nil || hash == "" {
+	if !ok || !signed || err != nil || hash == "" {
+		c.text(http.StatusNotFound, "Not Found")
+		return
+	}
+	// The content hash can be computed by anyone from the site's icon, so the URL also carries
+	// a value keyed to the account: only a URL the subscription list built is answered.
+	acct, err := c.a.account(c.r.Context())
+	if err != nil {
+		c.serverError("icon", err)
+		return
+	}
+	if !acct.enabled || !tokEqual(mac, iconMAC(acct.secret, id, hash)) {
 		c.text(http.StatusNotFound, "Not Found")
 		return
 	}
@@ -117,7 +130,9 @@ func (c *call) icon(rest string) {
 	c.w.Header().Set("Content-Type", ctype)
 	c.w.Header().Set("X-Content-Type-Options", "nosniff")
 	c.w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	c.w.Header().Set("Cache-Control", "public, max-age=86400")
+	// The path names the icon's bytes (<id>-<hash>-<mark>, and FeedIcon answers only for that hash), so a copy
+	// never goes stale: a changed icon gets a new address.
+	c.w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	c.w.WriteHeader(http.StatusOK)
 	_, _ = c.w.Write(data)
 }
@@ -440,7 +455,7 @@ func (c *call) subscriptionImport() {
 	}
 	if len(res.FoldersRefused) > 0 {
 		c.a.log.Warn("greader: subscription/import: folders not created; their feeds went into the nearest kept folder",
-			"folders", res.FoldersRefused, "ua", c.r.UserAgent())
+			"folders", res.FoldersRefused, "more", res.FoldersRefusedMore, "ua", c.r.UserAgent())
 	}
 	if res.FeedsAdded > 0 {
 		c.a.wake()

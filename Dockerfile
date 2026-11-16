@@ -16,7 +16,7 @@ ARG SOURCE_DATE_EPOCH
 RUN npm run build
 
 # --- go build -------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS build
 WORKDIR /app
 COPY go.mod go.sum ./
 # go.mod's toolchain line names the Go release the binary is built with. The image sets GOTOOLCHAIN=local, so a builder
@@ -59,7 +59,7 @@ LABEL org.opencontainers.image.title="Kipple" \
       org.opencontainers.image.source="https://github.com/WPTK/Kipple" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
-      org.opencontainers.image.licenses="BlueOak-1.0.0" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.url="https://github.com/WPTK/Kipple" \
       org.opencontainers.image.documentation="https://github.com/WPTK/Kipple#readme"

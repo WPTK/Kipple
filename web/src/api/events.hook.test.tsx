@@ -231,7 +231,7 @@ describe("useServerEvents", () => {
 });
 
 describe("reconnect reconciliation", () => {
-  it("clears a run whose run.done was missed, without refetching any list", async () => {
+  it("clears a manual run whose run.done was missed and reloads the lists", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     try {
       mockFetch({
@@ -244,6 +244,32 @@ describe("reconnect reconciliation", () => {
       const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
       const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
       act(() => FakeES.all[0]!.emit("run.start", { run_id: "7", kind: "manual", total: 3 }));
+      expect(Object.keys(liveStore.get().runs)).toEqual(["7"]);
+      act(() => FakeES.all[0]!.drop());
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      act(() => FakeES.all[1]!.onopen?.());
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(liveStore.get().runs).toEqual({});
+      expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears an import run whose run.done was missed, without refetching any list", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      mockFetch({
+        "GET /api/status": () => json({ runs: [], event_id: "50", inflight: 0, unread_total: 2 }),
+        "GET /api/bootstrap": () => json(bootstrap),
+      });
+      const qc = new QueryClient();
+      qc.setQueryData(keys.items({ view: "unread" }), { pages: [pageOf([card(1)])], pageParams: [""] });
+      qc.setQueryData(keys.bootstrap, bootstrap);
+      const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+      const { unmount } = renderHook(() => useServerEvents(true), { wrapper });
+      act(() => FakeES.all[0]!.emit("run.start", { run_id: "7", kind: "import", total: 3 }));
       expect(Object.keys(liveStore.get().runs)).toEqual(["7"]);
       act(() => FakeES.all[0]!.drop());
       await act(() => vi.advanceTimersByTimeAsync(1_500));

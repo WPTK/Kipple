@@ -17,7 +17,7 @@ import {
   useWrappedState,
   wrappedText,
   yearRange,
-  yearSpan,
+  yearQuery,
   type WrappedModel,
   type WrappedOptions,
 } from "@/lib/wrapped";
@@ -299,7 +299,7 @@ export function WrappedScreen() {
   const [sharing, setSharing] = useState(false);
   const headingId = useId();
   const on = state === "on";
-  const q = useWrappedSummary(year, yearSpan(year, today), on);
+  const q = useWrappedSummary(year, yearQuery(year, today), on);
   const data = q.data;
   // With `keepPreviousData`, `data` can still be the previously selected year's response while this year's request
   // is in flight — never derive a model (or enable Share) from that until the response actually matches `year`.

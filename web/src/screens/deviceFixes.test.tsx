@@ -10,13 +10,14 @@ import { initialLive, liveStore } from "@/api/events";
 import { keys } from "@/api/queries";
 import type { Bootstrap } from "@/api/types";
 import { rowMenuStore } from "@/gestures/rowMenu";
+import { TOUCH_QUERY } from "@/ui/menu";
 import { resetDevicePrefs, devicePrefsStore, updateDevicePrefs } from "@/lib/devicePrefs";
 import { itemActions } from "@/lib/itemActions";
 import { DEFAULT_PREFS, applyPrefs, prefsStore } from "@/lib/prefs";
 import { resetUndo, undoLast } from "@/lib/undo";
 import { INFO_MS, ACTION_MS, clearToasts, toast, toastMs, Toasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
-import { clearListMemory, NewArticlesPill } from "./ListPane";
+import { AWAY_MS, clearListMemory, NewArticlesPill } from "./ListPane";
 
 /** Select mode starts from the Feed actions menu. */
 async function startSelect(user: ReturnType<typeof userEvent.setup>) {
@@ -115,6 +116,65 @@ describe('the "N new articles" pill', () => {
     expect(hidden).toHaveAttribute("tabindex", "-1");
     rerender(<NewArticlesPill count={1} onClick={click} />);
     expect(screen.getByRole("button", { name: "1 new article" })).toBe(pill);
+  });
+});
+
+describe("back to the newest stories", () => {
+  const listScroll = () => screen.getByTestId("list-scroll");
+  const spyScroll = () => vi.spyOn(listScroll(), "scrollTo");
+  const setVisibility = (state: "visible" | "hidden") => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  };
+  afterEach(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+  });
+
+  it("a tap on the list header scrolls the list to the top; a tap on a header control does not", async () => {
+    routes();
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroll = spyScroll();
+    const header = listScroll().closest("main")?.querySelector("header") as HTMLElement;
+    fireEvent.click(header);
+    expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
+    scroll.mockClear();
+    fireEvent.click(within(header).getByRole("button", { name: "List actions" }));
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it("closing a header menu's sheet by its backdrop leaves the list where it is", async () => {
+    media(TOUCH_QUERY);
+    routes();
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroll = spyScroll();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "List actions" }));
+    await screen.findByRole("menu");
+    const backdrop = document.querySelector("[data-menu-backdrop]") as HTMLElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop);
+    expect(scroll).not.toHaveBeenCalled();
+  });
+
+  it("coming back after half an hour away starts at the top; a short break keeps the place", async () => {
+    routes();
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    const scroll = spyScroll();
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    setVisibility("hidden");
+    now += 5 * 60 * 1000;
+    setVisibility("visible");
+    expect(scroll).not.toHaveBeenCalled();
+    setVisibility("hidden");
+    now += AWAY_MS;
+    setVisibility("visible");
+    expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ top: 0 }));
   });
 });
 

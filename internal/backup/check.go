@@ -91,6 +91,7 @@ func inspect(ctx context.Context, db *sql.DB, full bool) (DBInfo, error) {
 	if err != nil {
 		return info, fmt.Errorf("%s: %w", check, err)
 	}
+	defer rows.Close() // also when a later step panics: the connection goes back to the pool
 	var problems []string
 	for rows.Next() {
 		var line string
@@ -115,6 +116,7 @@ func inspect(ctx context.Context, db *sql.DB, full bool) (DBInfo, error) {
 		if err != nil {
 			return info, fmt.Errorf("foreign_key_check: %w", err)
 		}
+		defer fk.Close()
 		bad := fk.Next()
 		fk.Close()
 		if bad {

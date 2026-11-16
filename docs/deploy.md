@@ -207,7 +207,7 @@ OPML carries your feeds and folders only; starred items and read state are not p
 
 An import keeps the file's folder tree: nested outlines become subfolders, up to 8 levels deep. A feed nested deeper, or
 in a folder whose name Kipple cannot store (over 100 characters, control characters), goes into the nearest folder above
-it, and the import report lists that folder under `folders_refused`. A feed you already have stays in its folder unless
+it, and the import report lists that folder under `folders_refused` (the first 1000, with `folders_refused_more` counting the rest). A feed you already have stays in its folder unless
 you ask for "move feeds that already exist into the file's folders" (`kipple import -move-existing`, or
 `POST /api/opml?move_existing=true`); folders that this leaves with no feeds are listed under `folders_emptied` and kept.
 
@@ -319,6 +319,14 @@ Settings, Account & Devices, Run setup again repeats, in that browser tab, the s
 The default listen address is `:1919`. Set `KIPPLE_ADDR` to choose any other address. If the address is taken, Kipple
 exits with an error that names it and `KIPPLE_ADDR`; it never picks another port by itself (a container has its own
 network, so this only happens with the bare binary). The port is never stored in the database or a backup.
+
+Kipple serves at most 512 connections at once (not a setting), plus 8 more that only the container itself (loopback,
+the health check) may use. A reverse proxy holds up to a couple of hundred connections and a few browsers and sync apps
+a few dozen more, so the cap is not reached in normal use; it keeps a device that opens a great many connections from
+using up the container's memory. When every slot is taken, a new connection closes the oldest idle one to take its place,
+and with none idle it is refused. Requests still in progress keep their slots until they finish or reach the read
+timeouts (10 s for the headers, 30 s for the request), so a device that holds many slow requests open can still shut
+other clients out for that long.
 
 In a container the simplest way to use another port is to change only the host side of the mapping
 (`127.0.0.1:8080:1919`). If you do set `KIPPLE_ADDR`, change the container side of the mapping to the same port: a

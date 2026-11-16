@@ -94,11 +94,11 @@ the 11 to 12 row above is the migration on the large library.
 | `GET /api/stats/summary` (year / all time) | 50 / 51 |
 | `GET /api/health/feeds` | 4.7 |
 | `GET /api/opml` | 4.7 |
-| **`GET /api/bootstrap`** (what the web app loads when it opens: 541 folders and 500 feeds with unread counts, totals, settings) | **706** |
+| **`GET /api/bootstrap`** (what the web app loads when it opens: 541 folders and 500 feeds with unread counts, totals, settings) | **29** |
 
-Every call except the bootstrap is a few milliseconds. The bootstrap counts unread items per feed over the whole items
-table, so it is the call that grows with the library: about 0.7 s at 150,000 items, and expect it to scale roughly
-linearly with the item count. Nothing here is over 2 s.
+Every call is tens of milliseconds or less. The bootstrap counts unread and starred items per feed through the partial
+indexes on those two states, so it grows with the number of unread and starred items and with the feed count, not with
+the size of the items table. Nothing here is over 2 s.
 
 ### Folders (a tree of 541 folders, 5 levels deep)
 
@@ -125,8 +125,7 @@ the library above:
 
 The cost grows faster than linearly with the number of folders (doubling the folders from 250 to 500 tripled the time),
 and an import of somewhere between 500 and 1,000 folders cannot finish in one write. This is known and PR #233 changes the import;
-re-run the bench after it merges. The bootstrap after the failed imports (about 1,000 folders and feeds more) answers
-in about 1.0 s.
+re-run the bench after it merges.
 
 ### Full-text search (warm)
 

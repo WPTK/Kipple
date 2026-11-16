@@ -285,7 +285,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
   // watch, which updates the cues already shown.
   const articleUrl = browserOnline ? safeHttpUrl(item.data?.url) : undefined;
   // A feed that sent only a title: nothing to read and no picture either. Told apart from an article that is all pictures.
-  const textless = !!a && !a.trimmed && hasNothingToRead(html);
+  const readable = !!a && !a.trimmed;
+  const textless = useMemo(() => readable && hasNothingToRead(html), [readable, html]);
   const originalButton = articleUrl ? <Button variant="solid" onClick={() => openOriginalAndRecord({ id, url: articleUrl })}>Open original</Button> : null;
   const sameTab = linkTarget === "same";
   const bodyCallback = useCallback(

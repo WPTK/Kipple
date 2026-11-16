@@ -234,7 +234,7 @@ func addVary(h http.Header, token string) {
 }
 
 // compressible reports whether a Content-Type is worth compressing: text other than an event stream,
-// JSON, JavaScript and XML (not SVG or any other image).
+// JSON (newline-delimited included), JavaScript and XML (not SVG or any other image).
 func compressible(ct string) bool {
 	mt, _, err := mime.ParseMediaType(ct)
 	if err != nil {
@@ -247,7 +247,7 @@ func compressible(ct string) bool {
 		return true
 	case strings.HasPrefix(mt, "image/"):
 		return false
-	case mt == "application/json", mt == "application/javascript", mt == "application/xml",
+	case mt == "application/json", mt == "application/x-ndjson", mt == "application/javascript", mt == "application/xml",
 		strings.HasSuffix(mt, "+json"), strings.HasSuffix(mt, "+xml"):
 		return true
 	}

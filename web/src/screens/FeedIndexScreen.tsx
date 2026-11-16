@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ArrowUpDown, TriangleAlert } from "lucide-react";
 import { LATEST_PER_FEED, useBootstrap, useFeedsLatest } from "@/api/queries";
@@ -10,6 +10,7 @@ import { focusRow, pageOrder, rowKeyMove, storyIntoView } from "@/layouts/rowKey
 import { ROW_KEYSHORTCUTS, stopId } from "@/layouts/rowTabStop";
 import { useDevicePrefs } from "@/lib/devicePrefs";
 import { failureLine, feedName, showsFailure } from "@/lib/feedStatus";
+import { RevealMore, useReveal } from "@/lib/reveal";
 import { useReturnPlace } from "@/lib/returnPlace";
 import { openListTo, articleTo } from "@/lib/routes";
 import { byFeed } from "@/lib/sections";
@@ -61,6 +62,7 @@ const FeedBlock = memo(function FeedBlock({ feed, unread, cards, tabStopId }: Bl
         <span data-stop-id={sid} className="min-w-0">
           <Link
             to={openListTo({ feed: feed.id })}
+            data-reveal-key={feed.id}
             tabIndex={sid === tabStopId ? undefined : -1}
             aria-keyshortcuts={ROW_KEYSHORTCUTS}
             title={feed.address_hint ? `${name} (${feed.address_hint})` : undefined}
@@ -129,8 +131,21 @@ export function FeedIndexScreen() {
     }
     return own;
   }, [blocks, data]);
+  // A library of thousands of feeds draws its blocks a step at a time, as the sidebar and the Feeds screen draw their rows (issue #463).
+  const blockKeys = useMemo(() => blocks.map((b) => b.feed.id), [blocks]);
+  const reveal = useReveal(blockKeys);
+  // The block of the row last visited is drawn with every block before it. Asked for while rendering, not in an
+  // effect: on the way back useReturnPlace looks for that row once, in its layout effect, so the row has to be in
+  // the first commit that has the data.
+  const focusedFeed = focused ? owner.get(focused) : undefined;
+  const [held, setHeld] = useState<string | undefined>(undefined);
+  if (held !== focusedFeed) {
+    setHeld(focusedFeed);
+    if (focusedFeed) reveal.ensure(focusedFeed);
+  }
   const first = blocks[0] ? stopId("feed", blocks[0].feed.id) : undefined;
-  const tabStopId = focused && owner.has(focused) ? focused : first;
+  // A stop whose block is not drawn (its hold has ended) gives the Tab stop back to the first row.
+  const tabStopId = focused && focusedFeed && reveal.shown(focusedFeed) ? focused : first;
   const tabFeed = tabStopId ? owner.get(tabStopId) : undefined;
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -178,10 +193,13 @@ export function FeedIndexScreen() {
   } else {
     body = (
       <div data-feed-index="" className={cn("pb-10", LIST_COLUMN)} onKeyDownCapture={onKey} onFocus={onFocus}>
-        {blocks.map((b) => (
-          <FeedBlock key={b.feed.id} feed={b.feed} unread={b.unread} cards={data.get(b.feed.id) ?? NONE} tabStopId={b.feed.id === tabFeed ? (tabStopId ?? null) : null} />
-        ))}
-        <p className="px-4 pt-6 text-center text-sm text-fg2">That&apos;s every feed.</p>
+        {blocks.map((b) =>
+          reveal.shown(b.feed.id) ? (
+            <FeedBlock key={b.feed.id} feed={b.feed} unread={b.unread} cards={data.get(b.feed.id) ?? NONE} tabStopId={b.feed.id === tabFeed ? (tabStopId ?? null) : null} />
+          ) : null,
+        )}
+        <RevealMore reveal={reveal} noun="feeds" />
+        {reveal.left === 0 ? <p className="px-4 pt-6 text-center text-sm text-fg2">That&apos;s every feed.</p> : null}
       </div>
     );
   }
@@ -208,7 +226,7 @@ export function FeedIndexScreen() {
           </DropdownMenu.Root>
         </div>
       </header>
-      <div ref={scroller} data-testid="feed-index-scroll" className="min-h-0 flex-1 overflow-y-auto bg-bg text-fg">
+      <div ref={scroller} data-reveal-root="" data-testid="feed-index-scroll" className="min-h-0 flex-1 overflow-y-auto bg-bg text-fg">
         {body}
       </div>
     </div>

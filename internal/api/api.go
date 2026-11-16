@@ -693,7 +693,12 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	// Article HTML is mostly angle brackets and ampersands, which the default encoding writes as six bytes each.
+	// A response here is always application/json with nosniff and is never placed inside a page, so the escaping
+	// protects nothing (the Reader API does the same).
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
 }
 
 func writeError(w http.ResponseWriter, code int, kind string) {

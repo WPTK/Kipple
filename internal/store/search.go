@@ -27,7 +27,7 @@ func snippetHTML(s string) string {
 
 // searchScope holds the WHERE parts of a search that do not depend on the cursor or the match
 // mode, so the zero-result probe and the page query see exactly the same rows.
-func searchScope(q CardQuery) (where []string, args []any) {
+func searchScope(q CardQuery, all bool) (where []string, args []any) {
 	switch q.View {
 	case "unread":
 		where = append(where, "i.read = 0")
@@ -47,7 +47,7 @@ func searchScope(q CardQuery) (where []string, args []any) {
 		where = append(where, inFolderTreeSQL("i.feed_id", "?"))
 		args = append(args, q.FolderID)
 	}
-	if w, a := ReadingWhere("i.word_count", q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
+	if w, a := ReadingWhere(readWordsSQL("i.", all), q.MinMinutes, q.MaxMinutes, q.UnknownLength); w != "" {
 		where = append(where, w)
 		args = append(args, a...)
 	}
@@ -93,13 +93,48 @@ func (d *DB) searchCards(ctx context.Context, q CardQuery, limit int) ([]Card, *
 	return cards, cur, fb, err
 }
 
+// CountSearch is how many items q's exact search matches in its scope, counted up to limit+1 (a result
+// above limit means "more than limit"). It is the match walk of searchCardsRun without the cards: the
+// same ParseSearch expression and the same searchScope, so the number is the length of the list the
+// search opens. unreadOnly adds read = 0 for a view that does not imply it (starred). Text with no
+// searchable word counts 0, and so does a search whose list is the partial-match fallback (that list
+// has no exact match). The caller's context bounds the walk.
+func (d *DB) CountSearch(ctx context.Context, q CardQuery, unreadOnly bool, limit int) (int, error) {
+	sqlText, args, ok := countSearchSQL(q, unreadOnly, limit, d.FulltextAll(ctx))
+	if !ok {
+		return 0, nil
+	}
+	var n int
+	if err := d.reader.QueryRowContext(ctx, sqlText, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: search count: %w", err)
+	}
+	return n, nil
+}
+
+// countSearchSQL is CountSearch's statement; ok is false when the text has no searchable word.
+func countSearchSQL(q CardQuery, unreadOnly bool, limit int, all bool) (sqlText string, args []any, ok bool) {
+	match, ok := ParseSearch(q.Query, q.Typing).Match()
+	if !ok {
+		return "", nil, false
+	}
+	scope, scopeArgs := searchScope(q, all)
+	where := append([]string{"items_fts MATCH ?"}, scope...)
+	args = append([]any{match}, scopeArgs...)
+	if unreadOnly {
+		where = append(where, "i.read = 0")
+	}
+	return `SELECT count(*) FROM (SELECT 1 FROM items_fts JOIN items i ON i.id = items_fts.rowid WHERE ` +
+		strings.Join(where, " AND ") + ` LIMIT ?)`, append(args, limit+1), true
+}
+
 func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card, *Cursor, bool, error) {
 	sq := ParseSearch(q.Query, q.Typing)
 	match, ok := sq.Match()
 	if !ok {
 		return []Card{}, nil, false, nil
 	}
-	scope, scopeArgs := searchScope(q)
+	all := d.FulltextAll(ctx)
+	scope, scopeArgs := searchScope(q, all)
 	fallback := false
 	if fb := sq.FallbackMatch(); q.Cursor != nil && q.Cursor.Fallback && fb != "" {
 		match, fallback = fb, true
@@ -200,7 +235,7 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 		args2 = append(args2, id)
 	}
 	sqlText := `SELECT i.id, i.feed_id, i.title, i.url, i.author,
-			substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url, i.published_at, i.sort_at, i.read, i.starred, i.word_count, i.origin_title,
+			substr(COALESCE(c.content_text, ''), 1, 1200), i.image_url, i.published_at, i.sort_at, i.read, i.starred, ` + readWordsSQL("i.", all) + `, i.origin_title,
 			(SELECT ` + feedTitleSQL("feeds") + ` FROM feeds WHERE id = i.feed_id),
 			i.muted_by, (SELECT name FROM filters WHERE id = i.muted_by),
 			snippet(items_fts, 2, '` + snipOpen + `', '` + snipClose + `', '…', 24)
