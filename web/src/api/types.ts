@@ -275,6 +275,8 @@ interface FetchDoneEvent {
   outcome: string;
   new_items: number;
   new_item_ids?: string[];
+  /** How many of `new_items` a mute rule muted: read already, in no list but Muted. */
+  muted_items?: number;
   updated_items?: number;
   trimmed_items?: number;
   error_class?: string;

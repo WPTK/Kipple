@@ -310,6 +310,108 @@ describe("reduceEvent", () => {
     vi.useRealTimers();
   });
 
+  it("counts only the articles a list can show: muted ones are left out of the pill", () => {
+    const done = (over: Record<string, unknown>) => ({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", trigger: "scheduled", ...over } }) as ServerEvent;
+    expect(reduceEvent(initialLive, done({ new_items: 5, muted_items: 2, new_item_ids: ["7", "8", "9"] })).pendingByFeed).toEqual({ "1": 3 });
+    const allMuted = reduceEvent(initialLive, done({ new_items: 4, muted_items: 4, new_item_ids: [] }));
+    expect(allMuted.pendingByFeed).toEqual({});
+    expect(allMuted.arrivals).toEqual({});
+    // More new articles than the event lists ids for (it names the first 50): the count is the server's, not the ids'.
+    const ids = Array.from({ length: 50 }, (_, i) => String(1000 + i));
+    expect(reduceEvent(initialLive, done({ new_items: 120, muted_items: 20, new_item_ids: ids })).pendingByFeed).toEqual({ "1": 100 });
+  });
+
+  it("raises no pill for a scheduled fetch that an import run joined, and still does for one a manual run joined", () => {
+    let s = reduceEvent(initialLive, { type: "run.start", data: { run_id: "9", kind: "import", total: 3 } });
+    s = reduceEvent(s, { type: "run.start", data: { run_id: "10", kind: "manual", total: 3 } });
+    const done = (run: string, trigger: string) => ({ type: "fetch.done", data: { feed_id: "1", run_ids: [run], outcome: "ok", new_items: 2, new_item_ids: ["7", "8"], trigger } }) as ServerEvent;
+    const joined = reduceEvent(s, done("9", "scheduled"));
+    expect(joined.pendingByFeed).toEqual({});
+    expect(joined.arrivals).toEqual({ "1": 1 }); // an empty list still fills itself
+    // Once the import has ended its kind is still known.
+    const over = reduceEvent(reduceEvent(s, { type: "run.done", data: { run_id: "9", new_items: 2, errors: 0 } }), done("9", "scheduled"));
+    expect(over.pendingByFeed).toEqual({});
+    expect(reduceEvent(s, done("10", "manual")).pendingByFeed).toEqual({ "1": 2 });
+    expect(reduceEvent(s, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, trigger: "scheduled" } }).pendingByFeed).toEqual({ "1": 2 });
+  });
+
+  it("forgets what it held for a feed that was deleted, once the feeds say so", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, bootstrap);
+    const keep = bootstrap.feeds![0]!.id;
+    const gone = "98765";
+    liveStore.set((s) => ({
+      ...s,
+      pendingByFeed: { [keep]: 2, [gone]: 3 },
+      pendingIds: { [keep]: ["1"], [gone]: ["2", "3"] },
+      arrivals: { [keep]: 1, [gone]: 1 },
+    }));
+    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: gone } });
+    await vi.waitFor(() => expect(liveStore.get().pendingByFeed).toEqual({ [keep]: 2 }));
+    expect(liveStore.get().pendingIds).toEqual({ [keep]: ["1"] });
+    expect(liveStore.get().arrivals).toEqual({ [keep]: 1 });
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, bootstrap.feeds!, bootstrap.folders!)).toBe(2);
+  });
+
+  it("keeps what it holds for a feed that was only edited", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, bootstrap);
+    const keep = bootstrap.feeds![0]!.id;
+    liveStore.set((s) => ({ ...s, pendingByFeed: { [keep]: 2 }, pendingIds: { [keep]: ["1"] }, arrivals: { [keep]: 1 } }));
+    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: keep } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(liveStore.get().pendingByFeed).toEqual({ [keep]: 2 });
+  });
+
+  it("waits for the end of a burst of fetches: each one moves the request on, up to a limit", () => {
+    vi.useFakeTimers();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    const inval = vi.spyOn(qc, "invalidateQueries");
+    const boots = () => inval.mock.calls.filter(([f]) => JSON.stringify(f?.queryKey) === JSON.stringify(keys.bootstrap)).length;
+    const fetched = (feed: string) => handleServerEvent(qc, { type: "fetch.done", data: { feed_id: feed, run_ids: [], outcome: "ok", new_items: 1, trigger: "scheduled" } });
+    // Fetches 800 ms apart: no request while they keep coming, one 1 s after the last.
+    for (const f of ["1", "2", "3"]) {
+      fetched(f);
+      vi.advanceTimersByTime(800);
+    }
+    expect(boots()).toBe(0);
+    vi.advanceTimersByTime(300);
+    expect(boots()).toBe(1);
+    // A stream that never pauses is still answered: 5 s after its first fetch.
+    for (let i = 0; i < 8; i++) {
+      fetched(String(10 + i));
+      vi.advanceTimersByTime(800);
+    }
+    expect(boots()).toBe(2);
+    resetCountsGuard();
+    vi.useRealTimers();
+  });
+
+  it("asks again when the bootstrap request on its way began before the fetch finished", async () => {
+    vi.useFakeTimers();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, bootstrap);
+    let asked = 0;
+    const obs = new QueryObserver(qc, {
+      queryKey: keys.bootstrap,
+      queryFn: () => {
+        asked++;
+        return new Promise(() => undefined);
+      },
+    });
+    const off = obs.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked).toBe(1); // a request that never answers: it began before the fetch
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 1, trigger: "scheduled" } });
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(asked).toBe(2);
+    off();
+    resetCountsGuard();
+    vi.useRealTimers();
+  });
+
   it("tracks the new item ids so the pill can skip ones the list already has", () => {
     const s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, new_item_ids: ["7", "8"], trigger: "feed_manual" } });
     expect(s.pendingIds).toEqual({ "1": ["7", "8"] });

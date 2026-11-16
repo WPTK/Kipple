@@ -42,7 +42,7 @@ export interface ListSource {
   /** Ask again for a list whose first load failed. */
   retry: () => void;
   /** Drop what is loaded and load the list from its first page. */
-  startOver: () => Promise<void>;
+  startOver: () => Promise<boolean>;
   /**
    * The articles mark above and below may reach from `item`, in the date order the server marks a side by; or, where
    * the list's reading order is not date order, why they reach nothing (what the list announces instead). A list made of
@@ -71,7 +71,10 @@ export function useItemsSource(scope: Scope, paged: boolean, enabled = true): Li
   const qc = useQueryClient();
   const q = useItems(scope, enabled);
   const cards = useMemo(() => listCards(q.data, scope.order === "rank"), [q.data, scope.order]);
-  const startOver = useCallback(() => qc.resetQueries({ queryKey: keys.items(scope) }), [qc, scope]);
+  const startOver = useCallback(async () => {
+    await qc.resetQueries({ queryKey: keys.items(scope) });
+    return !qc.getQueryCache().findAll({ queryKey: keys.items(scope) }).some((x) => x.state.status === "error");
+  }, [qc, scope]);
   const first = q.data?.pages[0];
   return {
     cards,

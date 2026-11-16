@@ -206,15 +206,17 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
       );
     }
     case "fetch.done": {
-      if (!(ev.data.new_items > 0)) return s;
+      // Muted articles are read and in no list but Muted: only the rest can appear in a list.
+      const eligible = (ev.data.new_items ?? 0) - (ev.data.muted_items ?? 0);
+      if (!(eligible > 0)) return s;
       const feed = String(ev.data.feed_id);
       const arrivals = { ...s.arrivals, [feed]: (s.arrivals[feed] ?? 0) + 1 };
-      if (!raisesPill(ev.data.trigger)) return { ...s, arrivals };
+      if (!raisesPill(ev.data.trigger) || joinedImport(s, ev.data)) return { ...s, arrivals };
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
         ...s,
         arrivals,
-        pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + ev.data.new_items },
+        pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + eligible },
         pendingIds: ids.length ? { ...s.pendingIds, [feed]: [...(s.pendingIds[feed] ?? []), ...ids].slice(-PENDING_IDS_CAP) } : s.pendingIds,
       };
     }
@@ -232,6 +234,23 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
 }
 
 const PENDING_IDS_CAP = 500;
+
+/**
+ * Whether a fetch counted for an OPML import run too: a scheduled fetch that an import run joined keeps its trigger and
+ * lists the run among its `run_ids`. An import's articles arrive silently, like the import itself.
+ */
+function joinedImport(s: LiveState, d: { trigger?: string; run_ids?: (string | number)[] }): boolean {
+  if (d.trigger !== "scheduled") return false;
+  return (d.run_ids ?? []).some((r) => (s.runs[String(r)]?.kind ?? s.finished[String(r)]?.kind) === "import");
+}
+
+/** The state without what it holds for feeds that are gone: a deleted feed's articles are not coming. */
+function forgetFeeds(s: LiveState, gone: ReadonlySet<string>): LiveState {
+  const has = (o: Record<string, unknown>) => Object.keys(o).some((k) => gone.has(k));
+  if (!has(s.pendingByFeed) && !has(s.pendingIds) && !has(s.arrivals)) return s;
+  const without = <T,>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => !gone.has(k))) as Record<string, T>;
+  return { ...s, pendingByFeed: without(s.pendingByFeed), pendingIds: without(s.pendingIds), arrivals: without(s.arrivals) };
+}
 
 /** Run kinds that are housekeeping or a rule at work, not a refresh; "unknown" is a run whose start was never seen. */
 const QUIET_KINDS: readonly string[] = ["retention", "filter_apply", "auto_read", "unknown"];
@@ -393,20 +412,28 @@ function dropHeldCounts(): void {
   countsHeld = undefined;
 }
 
-/** How long fetches that finish close together wait to ask for the counts once. */
+/** How long after the last of a burst of fetches the counts are asked for, and the longest a steady stream of them can put it off. */
 const FETCH_COUNTS_MS = 1000;
+const FETCH_COUNTS_MAX_MS = 5000;
 let fetchCountsTimer: ReturnType<typeof setTimeout> | undefined;
+let fetchCountsFirst = 0;
 let fetchCountsClient: QueryClient | undefined;
 
-/** Ask for the bootstrap (the unread counts) once, a moment after the last of a burst of fetches that brought in articles. */
+/**
+ * Ask for the bootstrap (the unread counts) once, a moment after the last of a burst of fetches that brought in articles.
+ * Each fetch moves the moment on, so the one request follows the burst; a request already on its way started before the
+ * last of them and may not have counted it, so it is replaced.
+ */
 function refreshCountsSoon(qc: QueryClient): void {
   fetchCountsClient = qc;
-  if (fetchCountsTimer) return;
+  const now = Date.now();
+  if (fetchCountsTimer) clearTimeout(fetchCountsTimer);
+  else fetchCountsFirst = now;
+  const wait = Math.max(0, Math.min(FETCH_COUNTS_MS, fetchCountsFirst + FETCH_COUNTS_MAX_MS - now));
   fetchCountsTimer = setTimeout(() => {
     fetchCountsTimer = undefined;
-    // A request already on its way is kept (cancelRefetch off), not started over.
-    void fetchCountsClient?.invalidateQueries({ queryKey: keys.bootstrap }, { cancelRefetch: false });
-  }, FETCH_COUNTS_MS);
+    void fetchCountsClient?.invalidateQueries({ queryKey: keys.bootstrap });
+  }, wait);
 }
 
 /** Forget the guard window and anything held in it (state must not carry over between tests). */
@@ -504,7 +531,15 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
       invalidateSavedSearches(qc);
       break;
     case "feed.changed":
-      void qc.invalidateQueries({ queryKey: keys.bootstrap });
+      // A deleted feed is not in the feeds that come back: what the live state holds for it goes.
+      void qc.invalidateQueries({ queryKey: keys.bootstrap }).then(() => {
+        const b = qc.getQueryData<BootstrapAnswer>(keys.bootstrap);
+        if (!b || b.fromCache) return;
+        const known = new Set(b.feeds.map((f) => String(f.id)));
+        const s = liveStore.get();
+        const gone = new Set([...Object.keys(s.pendingByFeed), ...Object.keys(s.pendingIds), ...Object.keys(s.arrivals)].filter((k) => !known.has(k)));
+        if (gone.size) liveStore.set((cur) => forgetFeeds(cur, gone));
+      });
       // Deleting a feed drops it as the scope of a saved search on the server, silently.
       invalidateSavedSearches(qc);
       break;

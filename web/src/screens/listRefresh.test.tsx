@@ -308,6 +308,56 @@ describe("a fetch the reader did not start finishes while a list is open", () =>
   });
 });
 
+describe("a reload that fails", () => {
+  const scheduled = (ids: string[]) =>
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: ids.length, new_item_ids: ids, trigger: "scheduled" } }));
+
+  it("keeps the pill, so pressing it again can try again", async () => {
+    let items = [card(1), card(2), card(3)];
+    let broken = false;
+    open(() => items, "/l/unread", { "GET /api/items": () => (broken ? json({ error: "down" }, 500) : json(pageOf(items, null, AS_OF))) });
+    await screen.findByText("Article number 1");
+    items = [card(9), ...items];
+    scheduled(["1009"]);
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    broken = true;
+    await userEvent.setup().click(pill);
+    await settle();
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 1 });
+    broken = false;
+    await userEvent.setup().click(await screen.findByRole("button", { name: "1 new article" }));
+    await screen.findByText("Article number 9");
+    expect(liveStore.get().pendingByFeed).toEqual({});
+  });
+
+  it("leaves an empty list owed its reload, and keeps what it was told of", async () => {
+    let items: Items = [];
+    let broken = false;
+    const { loads } = open(() => items, "/l/unread", { "GET /api/items": () => (broken ? json({ error: "down" }, 500) : json(pageOf(items, null, AS_OF))) });
+    await screen.findByText("All caught up");
+    broken = true;
+    items = [card(1)];
+    const before = loads();
+    scheduled(["1001"]);
+    await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
+    await settle();
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 1 });
+    expect(liveStore.get().arrivalsHandled[scopeKey({ view: "unread" })] ?? 0).toBe(0);
+  });
+
+  it("makes the other cached lists stale when an empty list fills itself, as pressing the pill does", async () => {
+    let items: Items = [];
+    open(() => items);
+    await screen.findByText("All caught up");
+    client.setQueryData(keys.items({ view: "all" }), { pages: [pageOf([card(5)], null, AS_OF)], pageParams: [undefined] });
+    expect(client.getQueryState(keys.items({ view: "all" }))?.isInvalidated).toBe(false);
+    items = [card(1)];
+    scheduled(["1001"]);
+    await screen.findByText("Article number 1", undefined, { timeout: 3000 });
+    expect(client.getQueryState(keys.items({ view: "all" }))?.isInvalidated).toBe(true);
+  });
+});
+
 describe("an empty list when feeds finish their first fetch", () => {
   const firstFetch = (feed: string) =>
     act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: feed, outcome: "ok", new_items: 5, trigger: "new_feed" } }));

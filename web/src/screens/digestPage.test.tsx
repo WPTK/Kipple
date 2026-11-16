@@ -756,6 +756,22 @@ describe("a scheduled poll that brings articles while the Digest is open", () =>
     await waitFor(() => expect(pill).toHaveAttribute("data-open", "false"));
   });
 
+  it("takes from the pill only what the sections it holds cover", async () => {
+    // The last folder has nothing unread, so the page draws no section for its feed.
+    const counts = [3, 3, 3, 0];
+    routes({ boot: library(counts), counts });
+    go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    const done = (feed: string, id: string) => liveStore.set((s) => reduceEvent(s, { type: "fetch.done", data: { feed_id: feed, run_ids: [], outcome: "ok", new_items: 1, new_item_ids: [id], trigger: "scheduled" } }));
+    act(() => {
+      done("20", "999991");
+      done("23", "999992");
+    });
+    const pill = await screen.findByRole("button", { name: "2 new articles" });
+    await userEvent.setup().click(pill);
+    await waitFor(() => expect(liveStore.get().pendingByFeed).toEqual({ "23": 1 }));
+  });
+
   it("raises no pill for an import's first fetch", async () => {
     routes({ boot: library([3, 3]), counts: [3, 3] });
     go("/l/unread");
