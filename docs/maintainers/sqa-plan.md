@@ -47,7 +47,7 @@ for a newcomer (gap 3 below, since closed).
 
 ## 6. Reviews and audits
 
-`/code-review high` before every deploy (medium for routine bot/script-equivalent work). A full multi-agent code audit + changelog review ran for phase 5 (PR #26,
+A whole-diff review before every deploy (a lighter review for routine bot/script-equivalent work). A full multi-agent code audit + changelog review ran for phase 5 (PR #26,
 `kipple-history/audits/phase5-code-audit-2026-09-27.md`), following the same pattern as the 2026-09-26 audit
 round. Standing rule: fix everything a review finds, no silent "not fixing" list.
 
