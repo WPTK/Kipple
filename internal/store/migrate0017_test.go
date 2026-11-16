@@ -8,11 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// undo0017 turns a current database into a schema-16 one (no feed_daily_new, no feeds.url_succeeded, no feeds.redirect_ack, no idx_items_starred_feed, no idx_trimmed_feed_unread),
+// undo0017 turns a current database into a schema-16 one (no feed_daily_new, no feeds.url_succeeded, no feeds.redirect_ack, no idx_items_starred_feed, no idx_trimmed_feed_unread, the narrow idx_items_unread_sort),
 // and is the first step of every downgrade helper below it (a migration file runs once, docs/design.md
 // §2.5).
 const undo0017 = `DROP INDEX idx_items_starred_feed;
 DROP INDEX idx_trimmed_feed_unread;
+DROP INDEX idx_items_unread_sort;
+CREATE INDEX idx_items_unread_sort ON items(sort_at, id)        WHERE read = 0;
 ALTER TABLE feeds DROP COLUMN redirect_ack;
 DROP TABLE feed_daily_new;
 ALTER TABLE feeds DROP COLUMN url_succeeded`

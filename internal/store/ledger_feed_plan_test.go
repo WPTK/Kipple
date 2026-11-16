@@ -40,12 +40,18 @@ func TestFeedScopedLedgerMarkPlan(t *testing.T) {
 	_, _, ledgerBatched, batchedArgs, err := markAllSQL(MarkScope{FeedID: feeds[0]}, false, int64(1)<<62, 1, MarkAllBatch)
 	require.NoError(t, err)
 	_, _, feedWhere, base := markSelectSQL(MarkScope{FeedID: feeds[0]}, MarkFilter{}, int64(1)<<62, "", false, false)
+	_, _, ledgerFolder, folderArgs, err := markAllSQL(MarkScope{FolderID: 1}, false, int64(1)<<62, 1, MarkAllBatch)
+	require.NoError(t, err)
+	_, _, folderWhere, folderBase := markSelectSQL(MarkScope{FolderTreeID: 1}, MarkFilter{}, int64(1)<<62, "", false, false)
 	ledger := map[string]struct {
 		sql  string
 		args []any
 	}{
 		"MarkAllReadBatched": {ledgerBatched, batchedArgs},
 		"MarkScopeRead":      {"UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max" + feedWhere + " AND " + notDeletingItemSQL + " RETURNING id, feed_id", base},
+		// The folder forms: the Reader API's label folder and the web app's folder with its subfolders.
+		"MarkAllReadBatched in a folder": {ledgerFolder, folderArgs},
+		"MarkScopeRead in a folder":      {"UPDATE trimmed_items SET read = 1 WHERE read = 0 AND id <= :max" + folderWhere + " AND " + notDeletingItemSQL + " RETURNING id, feed_id", folderBase},
 	}
 	for _, analyze := range []bool{false, true} {
 		if analyze {

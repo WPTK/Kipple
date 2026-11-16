@@ -274,7 +274,7 @@ func TestConfirmWithoutNewPasswordKeepsTheAccount(t *testing.T) {
 func TestRestoreASchema16Backup(t *testing.T) {
 	t.Parallel()
 	r, dir := newRestorer(t)
-	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP INDEX idx_items_starred_feed; DROP INDEX idx_trimmed_feed_unread; ALTER TABLE feeds DROP COLUMN redirect_ack; DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
+	up, err := upload(r, rebuilt(t, hostBackup(t), "DROP INDEX idx_items_starred_feed; DROP INDEX idx_trimmed_feed_unread; DROP INDEX idx_items_unread_sort; CREATE INDEX idx_items_unread_sort ON items(sort_at, id)        WHERE read = 0; ALTER TABLE feeds DROP COLUMN redirect_ack; DROP TABLE feed_daily_new; ALTER TABLE feeds DROP COLUMN url_succeeded; PRAGMA user_version = 16"))
 	require.NoError(t, err)
 	require.Equal(t, 16, up.Info.SchemaVersion)
 	_, ticket, _ := r.Uploaded(me)
