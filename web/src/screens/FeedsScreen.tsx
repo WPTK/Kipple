@@ -275,7 +275,11 @@ export function FeedsScreen() {
   // The folders that hold a feed, whatever the filters keep: what collapse all acts on.
   const folderIds = useMemo(() => {
     const own = new Map<string, string[]>();
-    for (const f of realFeeds) own.set(f.folder_id, [...(own.get(f.folder_id) ?? []), f.id]);
+    for (const f of realFeeds) {
+      const ids = own.get(f.folder_id);
+      if (ids) ids.push(f.id);
+      else own.set(f.folder_id, [f.id]);
+    }
     const sub = subtreeFeeds(ftree, (id) => own.get(id) ?? []);
     return ftree.preorder.filter((id) => (sub.get(id)?.length ?? 0) > 0);
   }, [ftree, realFeeds]);

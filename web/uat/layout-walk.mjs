@@ -55,7 +55,7 @@ await t.eachViewport(async (page, vp) => {
       for (const [w, h] of PORTRAIT) {
         const where = `${tag} W1 ${w}x${h}`;
         await at(w, h, "/feeds/index");
-        const head = page.locator("section[data-feed-block] > h2").filter({ hasText: LONG });
+        const head = page.locator("section[data-feed-block] h2").filter({ hasText: LONG });
         await head.waitFor({ timeout: 15000 });
         const m = await head.evaluate((h2) => {
           const a = h2.querySelector("a");
