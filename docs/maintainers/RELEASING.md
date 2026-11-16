@@ -121,7 +121,7 @@ bump): `0.9.0-beta.1` (the bug fixes plus those features), then `1.0.0-rc.N`, th
    Never move, delete or reuse a pushed tag; a bad release gets a new version.
    The tag push also starts `.github/workflows/release.yml`, which tests the tagged commit again, builds a multi-arch
    (amd64 and arm64) image, scans and smoke-tests it, then tags and signs it on `ghcr.io/wptk/kipple` (below).
-9. **Deploy the tag, only the named service** (deploy by digest with a local helper script). The tag, not `main`, is what gets built:
+9. **Deploy the tag, only the named service** The tag, not `main`, is what gets built. The commands below build it on the server; to run the signed release image instead, pull it by its digest as shown under "Rollback" (a local helper script can do that too):
 
        ssh <kipple-server> 'cd <checkout> && git fetch --tags --force && git checkout vX.Y.Z && KIPPLE_VERSION=vX.Y.Z KIPPLE_VCS_REF=$(git rev-parse HEAD) docker compose -f <stack>/docker-compose.yml build kipple && docker compose -f <stack>/docker-compose.yml up -d kipple'
        ssh <kipple-server> 'cd <checkout> && git checkout main'
