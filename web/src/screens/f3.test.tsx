@@ -817,6 +817,21 @@ describe("Folders and OPML", () => {
       const doc = (body: string) => `<opml><body>${body}</body></opml>`;
       expect(countOpmlFeeds(doc('<!-- <outline xmlUrl="https://a/f"/> --><outline xmlUrl="https://b/f"/>'))).toBe(1);
       expect(countOpmlFeeds(doc('<outline text="x" xmlUrl=""/><outline text="y" title="xmlUrl=&quot;https://c/f&quot;"/>'))).toBe(0);
+      expect(countOpmlFeeds(doc('<![CDATA[<outline xmlUrl="https://a/f"/>]]><outline text="x"/><outlineX xmlUrl="https://b/f"/>'))).toBe(0);
+      expect(countOpmlFeeds(doc(`<outline text="a b" title="see xmlUrl='https://c/f'"/>`))).toBe(0);
+    });
+
+    it("counts a feed whatever the attribute order, quote style or spacing", () => {
+      const doc = (body: string) => `<opml><body>${body}</body></opml>`;
+      expect(countOpmlFeeds(doc("<outline xmlUrl='https://a/f' text='A'/>"))).toBe(1);
+      expect(countOpmlFeeds(doc('<outline text="B" type="rss" xmlUrl = "https://b/f" htmlUrl="https://b/"/>'))).toBe(1);
+      expect(countOpmlFeeds(doc(`<outline
+  text="C"
+  xmlUrl
+=
+'https://c/f'
+/>`))).toBe(1);
+      expect(countOpmlFeeds(doc('<outline xmlUrl="https://a/f"/><outline xmlUrl="https://a/f"/><outline XMLURL="https://x/f"/>'))).toBe(2);
     });
 
     it("a slower read of an earlier file does not overwrite the newer one", async () => {

@@ -51,11 +51,22 @@ export const FRESH_MIN_FEEDS = 20;
 /** The days "Start fresh" fills in. The field itself stays empty until the person presses it. */
 export const FRESH_DAYS = 7;
 
-/** How many feeds an OPML text lists: its outline elements with a non-empty `xmlUrl` (a repeat counts twice). */
+/**
+ * How many feeds an OPML text lists: its outline start tags with a non-empty `xmlUrl` attribute (a repeat counts twice).
+ * It scans the text: comments and CDATA are dropped first, then each `<outline ...>` tag's attributes are read one by
+ * one, so a quoted value that happens to hold the words `xmlUrl=` is never taken for the attribute.
+ */
 export function countOpmlFeeds(text: string): number {
-  const doc = new DOMParser().parseFromString(text, "text/xml");
+  const bare = text.replace(/<!--[\s\S]*?-->/g, "").replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "");
   let n = 0;
-  for (const o of Array.from(doc.getElementsByTagName("outline"))) if ((o.getAttribute("xmlUrl") ?? "").trim() !== "") n++;
+  for (const tag of bare.matchAll(/<outline\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g)) {
+    for (const a of (tag[1] ?? "").matchAll(/([^\s=]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+      if (a[1] === "xmlUrl" && (a[2] ?? a[3] ?? "").trim() !== "") {
+        n++;
+        break;
+      }
+    }
+  }
   return n;
 }
 
