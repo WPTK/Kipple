@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
+import { applyCounts } from "@/api/events";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore, reduceEvent } from "@/api/events";
 import type { Bootstrap, Card, Feed } from "@/api/types";
@@ -11,6 +12,7 @@ import { resetUndo, undoLast } from "@/lib/undo";
 import * as toasts from "@/shell/toasts";
 import { clearToasts } from "@/shell/toasts";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
+import { fingerOnly } from "@/test/media";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 import { clearDigestPlaces, FIRST_SECTIONS, STEP_SECTIONS } from "./digestSource";
 import { rememberListTop } from "@/lib/listPlace";
@@ -80,9 +82,10 @@ function go(path: string) {
 }
 /** The requests for a section's list (not the app's own prefetch for offline reading). */
 const itemCalls = (calls: { method: string; url: URL }[]) => calls.filter((c) => c.method === "GET" && c.url.pathname === "/api/items" && (c.url.searchParams.has("folder") || c.url.searchParams.has("feed")));
-const headings = (root: ParentNode) => [...root.querySelectorAll("section[data-section] > h2")].map((h) => h.textContent);
+// A heading is its name, then its unread badge and Mark section read button: the name is the first span.
+const headings = (root: ParentNode) => [...root.querySelectorAll("section[data-section] > h2")].map((h) => h.querySelector("span")?.textContent);
 const storyIds = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>("article[data-item-id]")].map((a) => a.dataset.itemId);
-const section = (root: ParentNode, name: string) => [...root.querySelectorAll<HTMLElement>("section[data-section]")].find((s) => s.querySelector("h2")?.textContent === name)!;
+const section = (root: ParentNode, name: string) => [...root.querySelectorAll<HTMLElement>("section[data-section]")].find((s) => s.querySelector("h2 > span")?.textContent === name)!;
 
 beforeEach(() => {
   clearToasts();
@@ -371,7 +374,12 @@ describe("Digest keys", () => {
     await user.keyboard("{ArrowDown}");
     await waitFor(() => expect(screen.getByRole("button", { name: "3 more in Alpha" })).toHaveFocus());
     await user.keyboard("{ArrowDown}");
+    // Beta's heading has its Mark section read button, a stop between the sections like "N more".
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark section read: Beta" })).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
     await waitFor(() => expect(link("Beta story 1")).toHaveFocus());
+    await user.keyboard("{ArrowUp}");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Mark section read: Beta" })).toHaveFocus());
     await user.keyboard("{ArrowUp}");
     await waitFor(() => expect(screen.getByRole("button", { name: "3 more in Alpha" })).toHaveFocus());
     await user.keyboard("{ArrowUp}");
@@ -779,5 +787,131 @@ describe("a scheduled poll that brings articles while the Digest is open", () =>
     act(() => void liveStore.set((s) => reduceEvent(s, { type: "fetch.done", data: { feed_id: "20", run_ids: [], outcome: "ok", new_items: 1, new_item_ids: ["999999"], trigger: "import" } })));
     await new Promise((r) => setTimeout(r, 100));
     expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
+  });
+});
+
+describe("Digest on a touch screen and its headings", () => {
+  it("a heading carries the section's unread count at its right end and says it to a screen reader", async () => {
+    routes({ boot: library([8, 2]), counts: [8, 2] });
+    go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    const alpha = screen.getByRole("heading", { name: "Alpha, 8 unread" });
+    expect(within(alpha).getByTestId("unread-count")).toHaveTextContent("8");
+    expect(screen.getByRole("heading", { name: "Beta, 2 unread" })).toBeInTheDocument();
+  });
+
+  it("follows the Unread badge setting: a dot says unread, Off says nothing", async () => {
+    routes({ boot: library([8]), counts: [8] });
+    go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    act(() => updateDevicePrefs({ unreadBadge: "dot" }));
+    expect(await screen.findByRole("heading", { name: "Alpha, unread" })).toBeInTheDocument();
+    act(() => updateDevicePrefs({ unreadBadge: "off" }));
+    expect(await screen.findByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.queryByTestId("unread-count")).toBeNull();
+  });
+
+  it("follows what is read: the count drops as articles are marked", async () => {
+    routes({ boot: library([3]), counts: [3] });
+    const user = userEvent.setup();
+    const client = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/l/unread");
+    const { container } = render(<App client={client} />);
+    await screen.findByText("Alpha story 1");
+    expect(screen.getByRole("heading", { name: "Alpha, 3 unread" })).toBeInTheDocument();
+    fireEvent.contextMenu(within(container.querySelector<HTMLElement>('[data-item-id="1000"]')!).getByRole("link"), { button: 2 });
+    await user.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
+    act(() => applyCounts(client, { unread_total: 2, feeds: { "20": 2 } })); // the server's counts event, as it arrives online
+    expect(await screen.findByRole("heading", { name: "Alpha, 2 unread" })).toBeInTheDocument();
+  });
+
+  it("Mark section read marks that section only, up to its own bound, with one Undo", async () => {
+    const { calls } = routes({
+      boot: library([5, 4]),
+      counts: [5, 4],
+      asOf: (n) => String(900 + n),
+      extra: {
+        "POST /api/items/mark-read": (_u, init) => {
+          const body = JSON.parse(String(init?.body));
+          return json({ changed: body.read === false ? body.ids : ["2000", "2001", "2002", "2003"], restored: [] });
+        },
+      },
+    });
+    const user = userEvent.setup();
+    const { container } = go("/l/unread");
+    await screen.findByText("Beta story 1");
+    await user.click(screen.getByRole("button", { name: "Mark section read: Beta" }));
+    const posts = () => calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read").map((c) => JSON.parse(String(c.init?.body)));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(posts()[0]).toMatchObject({ read: true, max_id: "901", scope: { folder_id: "11" } });
+    await waitFor(() => expect(container.querySelector('[data-item-id="2000"]')).toHaveAttribute("data-read"));
+    expect(container.querySelector('[data-item-id="1000"]')).not.toHaveAttribute("data-read");
+    const toast = await screen.findByText("Marked 4 as read");
+    await user.click(within(toast.closest("[role=status]") as HTMLElement).getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(posts().filter((b) => b.read === false)).toHaveLength(1));
+    await waitFor(() => expect(container.querySelector('[data-item-id="2000"]')).not.toHaveAttribute("data-read"));
+  });
+
+  it("draws a Star in every row on a finger-only device, and none where there is a mouse", async () => {
+    routes({ boot: library([3]), counts: [3] });
+    const first = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    expect(screen.queryByRole("button", { name: /^Star:/ })).toBeNull();
+    first.unmount();
+    fingerOnly();
+    const { container } = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    const star = screen.getByRole("button", { name: "Star: Alpha story 1" });
+    expect(star).toHaveAttribute("aria-pressed", "false");
+    expect(container.querySelectorAll("article[data-item-id]")).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /^Star:/ })).toHaveLength(3);
+    expect(star).toHaveClass("hit-row"); // 44 px wherever there is a touch screen (index.css)
+  });
+
+  it("the Star stars the article", async () => {
+    const { calls } = routes({ boot: library([3]), counts: [3], extra: { "PUT /api/items/1000/star": () => json({ starred: true, restored: false }) } });
+    fingerOnly();
+    const user = userEvent.setup();
+    go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    await user.click(screen.getByRole("button", { name: "Star: Alpha story 1" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.url.pathname === "/api/items/1000/star")).toBe(true));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Star: Alpha story 1" })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  describe("the Press and hold caption", () => {
+    const CAPTION = "Press and hold a story for more actions.";
+    beforeEach(() => updateDevicePrefs({ pageTipSeen: false }));
+
+    it("shows once on a finger-only device, is remembered, and does not come back", async () => {
+      routes({ boot: library([3]), counts: [3] });
+      fingerOnly();
+      const first = go("/l/unread");
+      expect(await screen.findByText(CAPTION)).toBeInTheDocument();
+      expect(devicePrefsStore.get().pageTipSeen).toBe(true);
+      await userEvent.click(screen.getByRole("button", { name: "Dismiss tip" }));
+      expect(screen.queryByText(CAPTION)).toBeNull();
+      first.unmount();
+      go("/l/unread");
+      await screen.findByText("Alpha story 1");
+      expect(screen.queryByText(CAPTION)).toBeNull();
+    });
+
+    it("never shows where there is a mouse", async () => {
+      routes({ boot: library([3]), counts: [3] });
+      go("/l/unread");
+      await screen.findByText("Alpha story 1");
+      expect(screen.queryByText(CAPTION)).toBeNull();
+      expect(devicePrefsStore.get().pageTipSeen).toBe(false);
+    });
+
+    it("Show swipe tips again in Settings teaches it again", async () => {
+      routes({ boot: library([3]), counts: [3] });
+      updateDevicePrefs({ pageTipSeen: true, peekSeen: true });
+      go("/settings/appearance");
+      await userEvent.click(await screen.findByRole("button", { name: "Show swipe tips again" }));
+      expect(devicePrefsStore.get().pageTipSeen).toBe(false);
+      expect(devicePrefsStore.get().peekSeen).toBe(false);
+    });
   });
 });

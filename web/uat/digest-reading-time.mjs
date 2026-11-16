@@ -67,9 +67,9 @@ try {
     page.on("request", (r) => requests.push(new URL(r.url()).pathname));
     const patch = (b) =>
       page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
-    const section = (name) => page.locator("section[data-section]").filter({ has: page.getByRole("heading", { level: 2, name, exact: true }) });
+    const section = (name) => page.locator("section[data-section]").filter({ has: page.locator("h2 > span:first-child").filter({ hasText: new RegExp(`^${name}$`) }) });
     const idsOf = (name) => section(name).locator("article[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId));
-    const headings = () => page.locator("section[data-section] > h2").allTextContents();
+    const headings = () => page.locator("section[data-section] > h2 > span:first-child").allTextContents();
     const settled = (fn, ms = 8000) => page.waitForFunction(fn, null, { timeout: ms }).then(() => true, () => false);
     const readState = (ids) => page.evaluate(async (list) => Promise.all(list.map(async (i) => (await (await fetch(`/api/items/${i}`)).json()).read === true)), ids);
     const unreadAll = (ids) => page.request.post("/api/items/mark-read", { headers: t.WRITE, data: { ids, read: false } }).catch(() => {});

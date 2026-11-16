@@ -4,9 +4,14 @@ import { useLongPressMenu } from "@/gestures/useLongPressMenu";
 import type { Card, Headline } from "@/api/types";
 import { cn } from "@/lib/cn";
 import { articleTo } from "@/lib/routes";
+import { useDevicePrefs } from "@/lib/devicePrefs";
+import { MarkAllIcon } from "@/lib/itemActionTable";
+import { useFingerOnly } from "@/lib/useMedia";
 import { Button } from "@/ui/button";
+import { Icon } from "@/ui/Icon";
 import { Bone } from "@/ui/kit";
-import { ListImage, PublishedTime, RowMenu, UnreadDot, rowLinkProps, titleTone, useImageFailure } from "./parts";
+import { UnreadCount, unreadName } from "@/ui/UnreadCount";
+import { ListImage, PublishedTime, RowMenu, StarButton, UnreadDot, rowLinkProps, titleTone, useImageFailure } from "./parts";
 import { ROW_KEYSHORTCUTS, RowTabStop, stopId } from "./rowTabStop";
 import type { DigestSectionView, ListLayout, PageProps, RowMenuActions } from "./types";
 
@@ -25,6 +30,8 @@ interface RowProps<T extends RowItem> {
   onOpen: (item: T) => void;
   /** The row's menu button (More actions), built by the caller from a Card; it also turns on long press. Without it the row has none. */
   menu?: ReactNode;
+  /** The row's Star button, drawn in the row where there is no hover to reveal More (a finger-only device). Without it the row has none. */
+  star?: ReactNode;
   /** Show the picture on the right, when the article has one. */
   images: boolean;
   /** Name the article's source before its time. A page under the source's own name leaves it out. */
@@ -35,7 +42,7 @@ interface RowProps<T extends RowItem> {
 }
 
 /** An article: its title first, then its source and time, and a picture on the right when there is one and pictures are on. */
-export function DigestRow<T extends RowItem>({ item, to, onOpen, menu, images, source = true, selected, tabStop }: RowProps<T>) {
+export function DigestRow<T extends RowItem>({ item, to, onOpen, menu, star, images, source = true, selected, tabStop }: RowProps<T>) {
   const press = useLongPressMenu(item.id);
   const failure = useImageFailure(item.image);
   const unread = !item.read;
@@ -72,7 +79,12 @@ export function DigestRow<T extends RowItem>({ item, to, onOpen, menu, images, s
         </p>
       </div>
       {picture ? <ListImage src={item.image!} failure={failure} className={cn("size-16 shrink-0 rounded-lg bg-surface object-cover", item.read && "opacity-60")} /> : null}
-      {menu ? <RowTabStop.Provider value={tabStop}>{menu}</RowTabStop.Provider> : null}
+      {menu || star ? (
+        <RowTabStop.Provider value={tabStop}>
+          {star}
+          {menu}
+        </RowTabStop.Provider>
+      ) : null}
     </article>
   );
 }
@@ -125,10 +137,18 @@ interface SectionProps {
   tabStopId: string | undefined;
   expand: (key: string) => void;
   retry: (key: string) => void;
+  markSection?: (key: string) => void;
 }
 
-function DigestSection({ section: s, rows, images, counts, named, scope, onOpen, actions, selectedId, tabStopId, expand, retry }: SectionProps) {
+function DigestSection({ section: s, rows, images, counts, named, scope, onOpen, actions, selectedId, tabStopId, expand, retry, markSection }: SectionProps) {
   const box = useRef<HTMLElement>(null);
+  const fingerOnly = useFingerOnly();
+  const { unreadBadge } = useDevicePrefs();
+  // The heading's count is the unread articles the feeds say the section holds; the New page's heading says "N new" instead.
+  const unread = counts ? null : s.unread;
+  const name = unread === null ? s.title : unreadName(s.title, unread, unreadBadge);
+  // Marking is offered once the section's articles are in; it stays (aria-disabled) when nothing is left, so focus is never dropped.
+  const canMark = s.cards.some((c) => !c.read) || (unread ?? 0) > 0;
   // Pressing "N more" or Retry takes its button away (or moves it): focus goes to the first article the press brought in.
   // The press is forgotten once its request has settled without bringing any (a failed Retry), or after a while, so a
   // later refetch never takes focus from where the reader has gone.
@@ -156,9 +176,32 @@ function DigestSection({ section: s, rows, images, counts, named, scope, onOpen,
   return (
     // A plain section with no accessible name, so a long page does not add a landmark for each; its h2 is what heading navigation finds.
     <section ref={box} data-section={s.key} className="pt-4">
-      <h2 className="flex items-baseline gap-2 px-4 pb-1 text-sm font-semibold tracking-wide text-accent uppercase">
-        {s.title}
+      <h2
+        // The name says what the badge shows (the badge's own text is hidden from it): "News, 205 unread", or "News" when the Unread badge is off.
+        aria-label={name === s.title ? undefined : name}
+        className="flex items-center gap-2 px-4 pb-1 text-sm font-semibold tracking-wide text-accent uppercase"
+      >
+        <span className="min-w-0 break-words">{s.title}</span>
         {counts && s.total ? <span className="text-xs font-normal tracking-normal text-fg2 normal-case">{s.total} new</span> : null}
+        <span className="ml-auto" />
+        {unread !== null ? <UnreadCount n={unread} noun="" /> : null}
+        {markSection && s.state === "ready" ? (
+          // Reached with the arrow keys between the articles, like "N more": the page stays one Tab stop.
+          <span data-stop-id={stopId("mark", s.key)} className="-mr-2 inline-flex shrink-0">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-keyshortcuts={ROW_KEYSHORTCUTS}
+              aria-label={`Mark section read: ${s.title}`}
+              aria-disabled={!canMark || undefined}
+              title="Mark section read"
+              onClick={() => markSection(s.key)}
+              className="hit-row inline-flex items-center justify-center rounded-lg text-fg2 normal-case hover:text-fg aria-disabled:opacity-50"
+            >
+              <Icon of={MarkAllIcon} />
+            </button>
+          </span>
+        ) : null}
       </h2>
       {s.error != null ? (
         <div role="alert" className="flex items-center gap-2 border-b border-line px-4 py-2 text-sm text-fg2">
@@ -179,6 +222,7 @@ function DigestSection({ section: s, rows, images, counts, named, scope, onOpen,
             to={articleTo(item.id, scope)}
             onOpen={onOpen}
             menu={<RowMenu item={item} actions={actions} revealOnHover className="row-touch-unseen absolute right-1 bottom-1 bg-bg/80" />}
+            star={fingerOnly ? <StarButton item={item} onToggleStar={actions.toggleStar} className="-mr-2 shrink-0 self-center" /> : null}
             images={images}
             selected={item.id === selectedId}
             tabStop={item.id === tabStopId}
@@ -231,6 +275,7 @@ function DigestPage({ items, scope, more, selectedId, tabStopId, onOpen, actions
           tabStopId={stop}
           expand={digest.expand}
           retry={digest.retry}
+          markSection={digest.markSection}
         />
       ))}
       {digest.counts && !more ? (

@@ -173,7 +173,7 @@ export function planDigest(input: DigestInput, read: (sc: Scope) => SectionResul
   };
   const defs = fixed.keys.flatMap((k) => {
     const d = byKey.get(k);
-    return d ? [{ ...d, count: counted(k) }] : [];
+    return d ? [{ ...d, count: counted(k), unread: input.arrivals || scope.length || scope.view !== "unread" ? null : d.count }] : [];
   });
   const askedFor = new Set(defs.slice(0, FIRST_SECTIONS + STEP_SECTIONS * place.steps).map((d) => d.key));
   const results = new Map<string, SectionResult>();
