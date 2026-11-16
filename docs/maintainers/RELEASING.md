@@ -1,7 +1,7 @@
 # Releasing Kipple
 
 Every release, including alphas. Work top to bottom; do not deploy with a step open. The steps that protect production
-(the exact green commit, the off-box copy, the migration rehearsal, the digest deploy, the rollback) apply to every
+(the exact green commit, the off-box copy, the migration rehearsal, the deploy, the rollback) apply to every
 release. The test gates scale with what changed (see "Gates scale with what changed" below).
 
 ## Versioning
