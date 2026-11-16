@@ -208,13 +208,16 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
     case "fetch.done": {
       if (!(ev.data.new_items > 0)) return s;
       const feed = String(ev.data.feed_id);
+      // Every fetch that brings articles in counts as an arrival (a Muted list may show muted ones).
       const arrivals = { ...s.arrivals, [feed]: (s.arrivals[feed] ?? 0) + 1 };
-      if (!isManualTrigger(ev.data.trigger)) return { ...s, arrivals };
+      // Muted articles are read and in no list but Muted: only the rest can raise the pill.
+      const eligible = ev.data.new_items - (ev.data.muted_items ?? 0);
+      if (!(eligible > 0) || !raisesPill(ev.data.trigger) || joinedImport(s, ev.data)) return { ...s, arrivals };
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
         ...s,
         arrivals,
-        pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + ev.data.new_items },
+        pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + eligible },
         pendingIds: ids.length ? { ...s.pendingIds, [feed]: [...(s.pendingIds[feed] ?? []), ...ids].slice(-PENDING_IDS_CAP) } : s.pendingIds,
       };
     }
@@ -233,6 +236,15 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
 
 const PENDING_IDS_CAP = 500;
 
+/**
+ * Whether a fetch counted for an OPML import run too: a scheduled fetch that an import run joined keeps its trigger and
+ * lists the run among its `run_ids`. An import's articles arrive silently, like the import itself.
+ */
+function joinedImport(s: LiveState, d: { trigger?: string; run_ids?: (string | number)[] }): boolean {
+  if (d.trigger !== "scheduled") return false;
+  return (d.run_ids ?? []).some((r) => (s.runs[String(r)]?.kind ?? s.finished[String(r)]?.kind) === "import");
+}
+
 /** Run kinds that are housekeeping or a rule at work, not a refresh; "unknown" is a run whose start was never seen. */
 const QUIET_KINDS: readonly string[] = ["retention", "filter_apply", "auto_read", "unknown"];
 
@@ -240,11 +252,12 @@ const QUIET_KINDS: readonly string[] = ["retention", "filter_apply", "auto_read"
 export const isRefreshKind = (kind: string): boolean => !QUIET_KINDS.includes(kind);
 
 /**
- * The "N new articles" pill and its announcement are for a refresh the user asked for: a manual refresh (all
- * feeds or one feed). A periodic background poll, a newly subscribed feed's first fetch, an OPML import and a
- * retention-only trim all bring in new items too, but silently — no pill, no toast.
+ * The "N new articles" pill is raised by every fetch that brings in articles the open list may not hold: a manual
+ * refresh (all feeds or one feed), a scheduled poll and a newly subscribed feed's first fetch. Only the manual ones
+ * announce (`announcementFor`): the others raise the pill quietly, and nothing in the list moves until it is pressed.
+ * An OPML import brings in a whole library at once and a retention-only trim removes articles: neither raises it.
  */
-const isManualTrigger = (trigger: string | undefined): boolean => trigger === "manual" || trigger === "feed_manual";
+const raisesPill = (trigger: string | undefined): boolean => trigger === "manual" || trigger === "feed_manual" || trigger === "scheduled" || trigger === "subscribe";
 
 type FolderRef = { id: string; name: string; parent_id?: string | null };
 
@@ -275,7 +288,8 @@ export function pendingFor(
     for (const f of feedsInFolder(scope.folder, feeds, folders)) n += count(f.id);
     return n;
   }
-  for (const id of Object.keys(pending)) n += count(id);
+  // A feed the bootstrap does not list is gone (deleted): what the pill holds for it is not counted.
+  for (const f of feeds) n += count(f.id);
   return n;
 }
 
@@ -325,7 +339,7 @@ export function announcementFor(ev: ServerEvent, runKind?: string): string | nul
   // fetch too (its run_ids is not empty). A "Refresh all" run's own per-feed fetches ("manual", never
   // "feed_manual") do not announce here: every one of them belongs to a run by construction, and that run's
   // own run.done announces the total once, not once per feed. A scheduled poll, a new feed's first fetch, an
-  // import or a retention trim never announce either.
+  // import or a retention trim never announce either (a poll and a first fetch raise the pill quietly).
   if (ev.type === "fetch.done" && ev.data.new_items > 0 && ev.data.trigger === "feed_manual") {
     return plural(ev.data.new_items);
   }
@@ -392,10 +406,36 @@ function dropHeldCounts(): void {
   countsHeld = undefined;
 }
 
+/** How long after the last of a burst of fetches the counts are asked for, and the longest a steady stream of them can put it off. */
+const FETCH_COUNTS_MS = 1000;
+const FETCH_COUNTS_MAX_MS = 5000;
+let fetchCountsTimer: ReturnType<typeof setTimeout> | undefined;
+let fetchCountsFirst = 0;
+let fetchCountsClient: QueryClient | undefined;
+
+/**
+ * Ask for the bootstrap (the unread counts) once, a moment after the last of a burst of fetches that brought in articles.
+ * Each fetch moves the moment on, so the one request follows the burst; a request already on its way started before the
+ * last of them and may not have counted it, so it is replaced.
+ */
+function refreshCountsSoon(qc: QueryClient): void {
+  fetchCountsClient = qc;
+  const now = Date.now();
+  if (fetchCountsTimer) clearTimeout(fetchCountsTimer);
+  else fetchCountsFirst = now;
+  const wait = Math.max(0, Math.min(FETCH_COUNTS_MS, fetchCountsFirst + FETCH_COUNTS_MAX_MS - now));
+  fetchCountsTimer = setTimeout(() => {
+    fetchCountsTimer = undefined;
+    void fetchCountsClient?.invalidateQueries({ queryKey: keys.bootstrap });
+  }, wait);
+}
+
 /** Forget the guard window and anything held in it (state must not carry over between tests). */
 export function resetCountsGuard(): void {
   resetBumpWindow();
   dropHeldCounts();
+  if (fetchCountsTimer) clearTimeout(fetchCountsTimer);
+  fetchCountsTimer = undefined;
 }
 
 export { SAVED_COUNTS_MIN_MS, resetSavedSearchCounts };
@@ -431,6 +471,9 @@ export function handleServerEvent(qc: QueryClient, ev: ServerEvent, id?: number,
     }
     void qc.invalidateQueries({ queryKey: keys.feedsLatest });
   }
+  // The server publishes no `counts` event when a fetch brings articles in, so the unread counts (the list's header, the
+  // sidebar) are asked for again, once for a burst of fetches.
+  if (ev.type === "fetch.done" && ev.data.new_items > 0) refreshCountsSoon(qc);
   switch (ev.type) {
     case "items.state": {
       const { ids, read, starred, muted } = ev.data;

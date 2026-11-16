@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
-import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, noteArrivals, parseServerEvent, pollInterval, pollStatus, reduceEvent, seedRun, seedRuns } from "./events";
+import { FINISHED_KEEP_MAX, FINISHED_KEEP_MS, isRefreshKind, announcementFor, applyCounts, clearPending, pendingFor, handleServerEvent, initialLive, liveStore, noteArrivals, parseServerEvent, pollInterval, pollStatus, reduceEvent, resetCountsGuard, seedRun, seedRuns } from "./events";
 import { keys, scopeKey } from "./queries";
 import { savedSearchesKey } from "./savedSearches";
 import { noteFilterTouched, resetFilterTouched } from "./filterEdits";
@@ -266,12 +266,122 @@ describe("reduceEvent", () => {
     expect(s).toMatchObject({ pendingByFeed: {}, pendingIds: {} });
   });
 
-  it("ignores new items from a scheduled poll, a subscribe fetch or an import: no pill for those", () => {
-    let s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3, trigger: "scheduled" } });
+  it("counts new items from a scheduled poll and a subscribe fetch for the pill, but not an import, a retention trim or an unnamed trigger", () => {
+    let s = reduceEvent(initialLive, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3, new_item_ids: ["7", "8", "9"], trigger: "scheduled" } });
     s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "2", outcome: "ok", new_items: 2, trigger: "subscribe" } });
+    expect(s.pendingByFeed).toEqual({ "1": 3, "2": 2 });
+    expect(s.pendingIds).toEqual({ "1": ["7", "8", "9"] });
     s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "3", outcome: "ok", new_items: 5, trigger: "import" } });
+    s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "5", outcome: "ok", new_items: 1, trigger: "retention" } });
     s = reduceEvent(s, { type: "fetch.done", data: { feed_id: "4", outcome: "ok", new_items: 1 } });
-    expect(s.pendingByFeed).toEqual({});
+    expect(s.pendingByFeed).toEqual({ "1": 3, "2": 2 });
+  });
+
+  it("a scheduled poll raises the pill count and says nothing aloud; an import or a retention trim does neither", async () => {
+    const toasts = await import("@/shell/toasts");
+    const spy = vi.spyOn(toasts, "announce");
+    liveStore.set(() => initialLive);
+    const qc = new QueryClient();
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, new_item_ids: ["7", "8"], trigger: "scheduled" } });
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 2 });
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [{ id: "1", folder_id: "a" }], [])).toBe(2);
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "2", run_ids: [], outcome: "ok", new_items: 4, trigger: "import" } });
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "3", run_ids: [], outcome: "trim_only", new_items: 0, trimmed_items: 9, trigger: "retention" } });
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 2 });
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("asks for the unread counts once after a burst of fetches that brought in articles, not after one that found none", () => {
+    vi.useFakeTimers();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    const inval = vi.spyOn(qc, "invalidateQueries");
+    const boots = () => inval.mock.calls.filter(([f]) => JSON.stringify(f?.queryKey) === JSON.stringify(keys.bootstrap)).length;
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "not_modified", new_items: 0, trigger: "scheduled" } });
+    vi.advanceTimersByTime(5000);
+    expect(boots()).toBe(0);
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, trigger: "scheduled" } });
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "2", run_ids: [], outcome: "ok", new_items: 1, trigger: "scheduled" } });
+    expect(boots()).toBe(0);
+    vi.advanceTimersByTime(1500);
+    expect(boots()).toBe(1);
+    resetCountsGuard();
+    vi.useRealTimers();
+  });
+
+  it("counts only the articles a list can show: muted ones are left out of the pill", () => {
+    const done = (over: Record<string, unknown>) => ({ type: "fetch.done", data: { feed_id: "1", outcome: "ok", trigger: "scheduled", ...over } }) as ServerEvent;
+    expect(reduceEvent(initialLive, done({ new_items: 5, muted_items: 2, new_item_ids: ["7", "8", "9"] })).pendingByFeed).toEqual({ "1": 3 });
+    const allMuted = reduceEvent(initialLive, done({ new_items: 4, muted_items: 4, new_item_ids: [] }));
+    expect(allMuted.pendingByFeed).toEqual({});
+    expect(allMuted.arrivals).toEqual({ "1": 1 }); // an empty Muted list still has articles to show
+    // More new articles than the event lists ids for (it names the first 50): the count is the server's, not the ids'.
+    const ids = Array.from({ length: 50 }, (_, i) => String(1000 + i));
+    expect(reduceEvent(initialLive, done({ new_items: 120, muted_items: 20, new_item_ids: ids })).pendingByFeed).toEqual({ "1": 100 });
+  });
+
+  it("raises no pill for a scheduled fetch that an import run joined, and still does for one a manual run joined", () => {
+    let s = reduceEvent(initialLive, { type: "run.start", data: { run_id: "9", kind: "import", total: 3 } });
+    s = reduceEvent(s, { type: "run.start", data: { run_id: "10", kind: "manual", total: 3 } });
+    const done = (run: string, trigger: string) => ({ type: "fetch.done", data: { feed_id: "1", run_ids: [run], outcome: "ok", new_items: 2, new_item_ids: ["7", "8"], trigger } }) as ServerEvent;
+    const joined = reduceEvent(s, done("9", "scheduled"));
+    expect(joined.pendingByFeed).toEqual({});
+    expect(joined.arrivals).toEqual({ "1": 1 }); // an empty list still fills itself
+    // Once the import has ended its kind is still known.
+    const over = reduceEvent(reduceEvent(s, { type: "run.done", data: { run_id: "9", new_items: 2, errors: 0 } }), done("9", "scheduled"));
+    expect(over.pendingByFeed).toEqual({});
+    expect(reduceEvent(s, done("10", "manual")).pendingByFeed).toEqual({ "1": 2 });
+    expect(reduceEvent(s, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, trigger: "scheduled" } }).pendingByFeed).toEqual({ "1": 2 });
+  });
+
+  it("waits for the end of a burst of fetches: each one moves the request on, up to a limit", () => {
+    vi.useFakeTimers();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    const inval = vi.spyOn(qc, "invalidateQueries");
+    const boots = () => inval.mock.calls.filter(([f]) => JSON.stringify(f?.queryKey) === JSON.stringify(keys.bootstrap)).length;
+    const fetched = (feed: string) => handleServerEvent(qc, { type: "fetch.done", data: { feed_id: feed, run_ids: [], outcome: "ok", new_items: 1, trigger: "scheduled" } });
+    // Fetches 800 ms apart: no request while they keep coming, one 1 s after the last.
+    for (const f of ["1", "2", "3"]) {
+      fetched(f);
+      vi.advanceTimersByTime(800);
+    }
+    expect(boots()).toBe(0);
+    vi.advanceTimersByTime(300);
+    expect(boots()).toBe(1);
+    // A stream that never pauses is still answered: 5 s after its first fetch.
+    for (let i = 0; i < 8; i++) {
+      fetched(String(10 + i));
+      vi.advanceTimersByTime(800);
+    }
+    expect(boots()).toBe(2);
+    resetCountsGuard();
+    vi.useRealTimers();
+  });
+
+  it("asks again when the bootstrap request on its way began before the fetch finished", async () => {
+    vi.useFakeTimers();
+    resetCountsGuard();
+    const qc = new QueryClient();
+    qc.setQueryData(keys.bootstrap, bootstrap);
+    let asked = 0;
+    const obs = new QueryObserver(qc, {
+      queryKey: keys.bootstrap,
+      queryFn: () => {
+        asked++;
+        return new Promise(() => undefined);
+      },
+    });
+    const off = obs.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(asked).toBe(1); // a request that never answers: it began before the fetch
+    handleServerEvent(qc, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 1, trigger: "scheduled" } });
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(asked).toBe(2);
+    off();
+    resetCountsGuard();
+    vi.useRealTimers();
   });
 
   it("tracks the new item ids so the pill can skip ones the list already has", () => {
@@ -470,11 +580,11 @@ describe("cache reconciliation", () => {
 
   it("noteArrivals does not add to a count that came without ids: a fetch.done count, then the same articles found", async () => {
     liveStore.set((s) => reduceEvent(s, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 3, trigger: "feed_manual" } }));
-    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [], [])).toBe(3);
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [{ id: "1", folder_id: "a" }], [])).toBe(3);
     mockFetch({ "GET /api/items": () => json(pageOf([card(9), card(8), card(7)])) });
     expect(await noteArrivals({ view: "unread" }, new Set(), "1005")).toBe(3);
     expect(liveStore.get().pendingByFeed).toEqual({ "1": 3 });
-    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [], [])).toBe(3);
+    expect(pendingFor(liveStore.get().pendingByFeed, { view: "unread" }, [{ id: "1", folder_id: "a" }], [])).toBe(3);
   });
 
   it("noteArrivals asks nothing for a list that shows no pill", async () => {
@@ -509,6 +619,14 @@ describe("cache reconciliation", () => {
     liveStore.set((s) => reduceEvent(s, { type: "run.start", data: { run_id: "8", kind: "manual", total: 5 } }));
     await pollStatus(qc);
     expect(qc.getQueryState(keys.items({ view: "unread" }))?.isInvalidated).toBe(true);
+  });
+
+  it("feed.changed refetches the bootstrap and saved searches, so a rename or delete from another tab shows", () => {
+    const qc = seeded();
+    qc.setQueryData(savedSearchesKey, []);
+    handleServerEvent(qc, { type: "feed.changed", data: { feed_id: "1" } });
+    expect(qc.getQueryState(keys.bootstrap)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(savedSearchesKey)?.isInvalidated).toBe(true);
   });
 
   it("folder.changed refetches the bootstrap and saved searches, not the item lists", () => {
@@ -577,6 +695,12 @@ describe('pendingFor (the "n new" pill)', () => {
     expect(pendingFor(pending, { view: "starred" }, feeds, folders)).toBe(0);
     expect(pendingFor(pending, { view: "all", q: "x" }, feeds, folders)).toBe(0);
     expect(pendingFor(pending, { view: "unread", order: "oldest" }, feeds, folders)).toBe(0);
+  });
+  it("ignores a feed the bootstrap does not list, and counts it again when it is listed", () => {
+    // Feed 9 was deleted: what the pill holds for it is not counted, with nothing cleaned up. A feed subscribed again counts.
+    const held = { ...pending, "9": 7 };
+    expect(pendingFor(held, { view: "unread" }, feeds, folders)).toBe(9);
+    expect(pendingFor(held, { view: "unread" }, [...feeds, { id: "9", folder_id: "b" }], folders)).toBe(16);
   });
   it("does not count ids the list already holds", () => {
     const loaded = { ids: new Set(["a", "b"]), pendingIds: { "1": ["a", "b", "c"], "2": ["z"] } };

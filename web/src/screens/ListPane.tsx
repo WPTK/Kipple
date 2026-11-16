@@ -1190,21 +1190,63 @@ export function ListPane({ scope, activeId, onControls }: Props) {
 
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
   const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIdSet, pendingIds });
-  const loadNew = () => {
-    // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
+  /**
+   * The arrivals a reload of this list covers are no longer pending: what `taken` (the pending counts and ids when the
+   * reload began) held for them. Arrivals that came in during the reload keep counting. A Digest covers only the
+   * sections it holds (`held`).
+   */
+  const clearPendingFor = (held: readonly { scope: Pick<Scope, "feed" | "folder"> }[] | undefined, taken: { counts: Record<string, number>; ids: Record<string, string[]> }) =>
     liveStore.set((s) => {
-      const left = clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? []);
-      return { ...s, pendingByFeed: left, pendingIds: Object.fromEntries(Object.entries(s.pendingIds).filter(([k]) => k in left)) };
+      const feeds = boot.data?.feeds ?? [];
+      const folders = boot.data?.folders ?? [];
+      const covered = held ? held.map((h) => ({ view: scope.view, ...(h.scope.feed ? { feed: h.scope.feed } : {}), ...(h.scope.folder ? { folder: h.scope.folder } : {}) })) : [scope];
+      const left = covered.reduce((acc, sc) => clearPending(acc, sc, feeds, folders), taken.counts);
+      const feedsCleared = Object.keys(taken.counts).filter((k) => !(k in left));
+      if (feedsCleared.length === 0) return s;
+      const pendingByFeed = { ...s.pendingByFeed };
+      const pendingIds = { ...s.pendingIds };
+      for (const k of feedsCleared) {
+        const rest = (pendingByFeed[k] ?? 0) - (taken.counts[k] ?? 0);
+        if (rest > 0) pendingByFeed[k] = rest;
+        else delete pendingByFeed[k];
+        const took = new Set(taken.ids[k] ?? []);
+        const ids = (pendingIds[k] ?? []).filter((id) => !took.has(id));
+        if (ids.length > 0 && rest > 0) pendingIds[k] = ids;
+        else delete pendingIds[k];
+      }
+      return { ...s, pendingByFeed, pendingIds };
     });
+  /**
+   * Start the list over to take in what has arrived. The arrivals it began with leave the pill only once the list has
+   * come back: a failed reload keeps the pill, so pressing it again tries again. Resolves whether it came back.
+   */
+  const reloading = useRef(false);
+  const reloadHere = async (): Promise<boolean> => {
+    // One reload at a time: a second press (or an empty list's own reload) while one is on its way would take its arrivals twice.
+    if (reloading.current) return false;
+    reloading.current = true;
+    const held = src.digest?.sections;
+    const taken = { counts: liveStore.get().pendingByFeed, ids: liveStore.get().pendingIds };
+    // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
+    void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
+    try {
+      const ok = await startOver();
+      if (ok) clearPendingFor(held, taken);
+      return ok;
+    } finally {
+      reloading.current = false;
+    }
+  };
+  const loadNew = () => {
+    if (reloading.current) return;
     memory.delete(key);
     sentByScroll.current = memoryFor(key).sentByScroll;
     seenIds.current = memoryFor(key).seenByScroll;
     asOf.current = undefined;
     setHidden(new Set());
     setLeaving(new Set());
-    // Other cached lists for the cleared feeds are now stale too; they refetch when next opened.
-    void qc.invalidateQueries({ queryKey: keys.itemsAll, refetchType: "none" });
-    void startOver().then(() => {
+    void reloadHere().then((ok) => {
+      if (!ok) return;
       virtualizer.scrollToOffset(0);
       announce("List updated");
     });
@@ -1265,7 +1307,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const settledEmpty = items.length === 0 && !src.pending && !src.error;
   const emptyNow = useRef(false);
   emptyNow.current = settledEmpty;
-  const startOverRef = useLatestRef(startOver);
+  const reloadHereRef = useLatestRef(reloadHere);
   useEffect(() => {
     if (!settledEmpty) {
       // Loaded with articles (or still loading): what has arrived so far is not owed a reload.
@@ -1275,11 +1317,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     if (arrivedHere <= (liveStore.get().arrivalsHandled[key] ?? 0)) return;
     const h = setTimeout(() => {
       if (!emptyNow.current) return;
-      liveStore.set((s) => ({ ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: Math.max(s.arrivalsHandled[key] ?? 0, arrivedHere) } }));
-      void startOverRef.current();
+      // The reload holds what arrived: a pill for it would offer the same articles again. Both marks are made only once
+      // it has come back, so a failed reload is tried again (the list's retry) and keeps its pill.
+      void reloadHereRef.current().then((ok) => {
+        if (ok) liveStore.set((s) => ({ ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: Math.max(s.arrivalsHandled[key] ?? 0, arrivedHere) } }));
+      });
     }, EMPTY_RELOAD_MS);
     return () => clearTimeout(h);
-  }, [arrivedHere, key, settledEmpty, src.pending, src.error, startOverRef]);
+  }, [arrivedHere, key, settledEmpty, src.pending, src.error, reloadHereRef]);
   // A refresh that ended while the list was loading is asked about once it has.
   useEffect(() => {
     if (!src.pending) void askArrivals();

@@ -248,6 +248,169 @@ describe("a manual refresh that ends while a list is open", () => {
   });
 });
 
+describe("a fetch the reader did not start finishes while a list is open", () => {
+  const fetchDone = (trigger: string, over: Record<string, unknown> = {}) =>
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 1, new_item_ids: ["1009"], trigger, ...over } } as never));
+
+  it.each([["a scheduled poll", "scheduled"], ["a new feed's first fetch", "subscribe"]])(
+    "%s offers the new articles in the pill without a word aloud, and moves nothing, even at the top",
+    async (_, trigger) => {
+      const toasts = await import("@/shell/toasts");
+      const say = vi.spyOn(toasts, "announce");
+      let items = [card(1), card(2), card(3)];
+      const { loads } = open(() => items);
+      await screen.findByText("Article number 1");
+      scrollTo(0);
+      const before = loads();
+      items = [...fresh(), ...items];
+      fetchDone(trigger);
+      const pill = await screen.findByRole("button", { name: "1 new article" });
+      expect(pill).toHaveAttribute("data-open", "true");
+      await settle();
+      expect(say).not.toHaveBeenCalled();
+      expect(loads()).toBe(before);
+      expect(screen.queryByText("Article number 9")).toBeNull();
+      expect(screen.getByText("Article number 1")).toBeInTheDocument();
+      await userEvent.setup().click(pill);
+      await screen.findByText("Article number 9");
+    },
+  );
+
+  it.each([["an import", "import", {}], ["a retention trim", "retention", { outcome: "trim_only", new_items: 0, new_item_ids: [], trimmed_items: 4 }]])(
+    "%s raises no pill",
+    async (_, trigger, over) => {
+      const items = [card(1), card(2), card(3)];
+      open(() => items);
+      await screen.findByText("Article number 1");
+      fetchDone(trigger, over);
+      await settle();
+      expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
+    },
+  );
+
+  it("does not count an article the list already holds", async () => {
+    const items = [card(1), card(2), card(3)];
+    open(() => items);
+    await screen.findByText("Article number 1");
+    fetchDone("scheduled", { new_item_ids: ["1002"] });
+    await settle();
+    expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
+  });
+
+  it("asks for the unread counts again, so the header does not stay behind the pill", async () => {
+    const items = [card(1), card(2), card(3)];
+    const { calls } = open(() => items);
+    await screen.findByText("Article number 1");
+    const boots = () => calls.filter((c) => c.url.pathname === "/api/bootstrap").length;
+    const before = boots();
+    fetchDone("scheduled");
+    await waitFor(() => expect(boots()).toBe(before + 1), { timeout: 3000 });
+  });
+});
+
+describe("a reload that fails", () => {
+  const scheduled = (ids: string[]) =>
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: ids.length, new_item_ids: ids, trigger: "scheduled" } }));
+
+  it("keeps the pill, so pressing it again can try again", async () => {
+    let items = [card(1), card(2), card(3)];
+    let broken = false;
+    open(() => items, "/l/unread", { "GET /api/items": () => (broken ? json({ error: "down" }, 500) : json(pageOf(items, null, AS_OF))) });
+    await screen.findByText("Article number 1");
+    items = [card(9), ...items];
+    scheduled(["1009"]);
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    broken = true;
+    await userEvent.setup().click(pill);
+    await settle();
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 1 });
+    broken = false;
+    await userEvent.setup().click(await screen.findByRole("button", { name: "1 new article" }));
+    await screen.findByText("Article number 9");
+    expect(liveStore.get().pendingByFeed).toEqual({});
+  });
+
+  it("takes one reload for presses that overlap", async () => {
+    let items = [card(1), card(2), card(3)];
+    let release: () => void = () => undefined;
+    let hold: Promise<void> | null = null;
+    const { loads } = open(() => items, "/l/unread", {
+      "GET /api/items": async () => {
+        if (hold) await hold;
+        return json(pageOf(items, null, AS_OF));
+      },
+    });
+    await screen.findByText("Article number 1");
+    items = [card(9), ...items];
+    scheduled(["1009"]);
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    hold = new Promise<void>((r) => (release = r));
+    const before = loads();
+    const user = userEvent.setup();
+    await user.click(pill);
+    await user.click(pill);
+    hold = null;
+    release();
+    await screen.findByText("Article number 9");
+    await settle();
+    expect(loads()).toBe(before + 1);
+    expect(liveStore.get().pendingByFeed).toEqual({});
+  });
+
+  it("leaves an empty list owed its reload, and keeps what it was told of", async () => {
+    let items: Items = [];
+    let broken = false;
+    const { loads } = open(() => items, "/l/unread", { "GET /api/items": () => (broken ? json({ error: "down" }, 500) : json(pageOf(items, null, AS_OF))) });
+    await screen.findByText("All caught up");
+    broken = true;
+    items = [card(1)];
+    const before = loads();
+    scheduled(["1001"]);
+    await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
+    await settle();
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 1 });
+    expect(liveStore.get().arrivalsHandled[scopeKey({ view: "unread" })] ?? 0).toBe(0);
+  });
+
+  it("leaves the pill what arrived while the reload was on its way", async () => {
+    let items = [card(1), card(2), card(3)];
+    let release: () => void = () => undefined;
+    let hold: Promise<void> | null = null;
+    open(() => items, "/l/unread", {
+      "GET /api/items": async () => {
+        if (hold) await hold;
+        return json(pageOf(items, null, AS_OF));
+      },
+    });
+    await screen.findByText("Article number 1");
+    items = [card(9), ...items];
+    scheduled(["1009"]);
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    hold = new Promise<void>((r) => (release = r));
+    await userEvent.setup().click(pill);
+    // A second fetch finishes while the list is being read again; the answer does not hold its article.
+    scheduled(["1010"]);
+    hold = null;
+    release();
+    await screen.findByText("Article number 9");
+    await settle();
+    expect(liveStore.get().pendingByFeed).toEqual({ "1": 1 });
+    expect(liveStore.get().pendingIds).toEqual({ "1": ["1010"] });
+  });
+
+  it("makes the other cached lists stale when an empty list fills itself, as pressing the pill does", async () => {
+    let items: Items = [];
+    open(() => items);
+    await screen.findByText("All caught up");
+    client.setQueryData(keys.items({ view: "all" }), { pages: [pageOf([card(5)], null, AS_OF)], pageParams: [undefined] });
+    expect(client.getQueryState(keys.items({ view: "all" }))?.isInvalidated).toBe(false);
+    items = [card(1)];
+    scheduled(["1001"]);
+    await screen.findByText("Article number 1", undefined, { timeout: 3000 });
+    expect(client.getQueryState(keys.items({ view: "all" }))?.isInvalidated).toBe(true);
+  });
+});
+
 describe("an empty list when feeds finish their first fetch", () => {
   const firstFetch = (feed: string) =>
     act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: feed, outcome: "ok", new_items: 5, trigger: "new_feed" } }));
@@ -263,6 +426,17 @@ describe("an empty list when feeds finish their first fetch", () => {
     firstFetch("3");
     await screen.findByText("Article number 1", undefined, { timeout: 3000 });
     expect(loads()).toBe(before + 1);
+  });
+
+  it("offers no pill for articles it has just loaded by itself", async () => {
+    let items: Items = [];
+    open(() => items);
+    await screen.findByText("All caught up");
+    items = [card(1), card(2)];
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, trigger: "scheduled" } }));
+    await screen.findByText("Article number 1", undefined, { timeout: 3000 });
+    await settle();
+    expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
   });
 
   it("leaves a list that has articles alone when a feed finishes a silent fetch", async () => {
@@ -300,6 +474,14 @@ describe("an empty list and which arrivals it reloads for", () => {
     release();
     await screen.findByText("Article number 1", undefined, { timeout: 3000 });
     expect(loads()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reloads an empty Muted list for fetches that brought in only muted articles", async () => {
+    const { loads } = open(() => [], "/l/muted");
+    await settle();
+    const before = loads();
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", outcome: "ok", new_items: 2, muted_items: 2, new_item_ids: [], trigger: "scheduled" } }));
+    await waitFor(() => expect(loads()).toBeGreaterThan(before), { timeout: 3000 });
   });
 
   it("does not reload for a feed that is not in the list's folder or feed", async () => {

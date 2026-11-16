@@ -408,7 +408,10 @@ export function useDigestSource(scope: Scope, on: boolean, live = true): DigestS
   const startOver = useCallback(async () => {
     setPlace(listKey, () => FRESH);
     opened.delete(listKey);
-    await qc.resetQueries({ queryKey: keys.itemsAll, predicate: (q) => String(q.queryKey[1]).startsWith(`${view}|`) && String(q.queryKey[1]).endsWith(SECTION_SUFFIX) && String(q.queryKey[1]).includes("|after:") === !!after });
+    const sections = (q: { queryKey: readonly unknown[] }) => String(q.queryKey[1]).startsWith(`${view}|`) && String(q.queryKey[1]).endsWith(SECTION_SUFFIX) && String(q.queryKey[1]).includes("|after:") === !!after;
+    await qc.resetQueries({ queryKey: keys.itemsAll, predicate: sections });
+    // Whether every section that was asked for came back.
+    return !qc.getQueryCache().findAll({ queryKey: keys.itemsAll, predicate: sections }).some((x) => x.state.status === "error");
   }, [qc, listKey, view, after]);
 
   const results = useMemo(() => (plan ? [...plan.results.values()] : []), [plan]);
