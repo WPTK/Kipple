@@ -115,7 +115,7 @@ export function AccountStep({
     <WizardFrame step={stepById("account")}>
       <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-5" noValidate>
         {formError ? <Notice tone="error">{formError}</Notice> : null}
-        <Field label="Username" help="Letters, digits, dots, dashes and underscores, up to 64. Apps that sync with Kipple (sync apps) use it too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
+        <Field label="Username" help="Letters, digits, dots, dashes and underscores, up to 64. Apps that connect to Kipple, such as news apps on your phone, use it too." error={fieldError?.field === "username" ? fieldError.message : usernameBad}>
           {(a) => (
             <input
               {...a}

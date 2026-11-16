@@ -37,7 +37,7 @@ import { Checkbox, Modal, Notice, Skeleton, inputCls } from "@/ui/kit";
 function Card({ title, children, hero = false }: { title: string; children: ReactNode; hero?: boolean }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className={`wrapped-card rounded-2xl bg-surface px-5 ${hero ? "py-8" : "py-6"}`}>
+    <section aria-labelledby={id} className={`wrapped-card rounded-2xl bg-surface px-5 ${hero ? "py-8 @2xl:col-span-2" : "py-6"}`}>
       <h2 id={id} className="text-sm font-medium text-fg2">
         {title}
       </h2>
@@ -55,66 +55,70 @@ const Sub = ({ children }: { children: ReactNode }) => <p className="mt-1 text-b
 /**
  * The year as cards, in the order of the share image: articles read, active reading, days with reading, then (from a
  * week of reading on) the longest streak and the busiest day, hour and month, then the top sources and the longest read.
+ * One column while the screen is narrow; from 42rem of width (of the screen itself, not the window) two columns, with
+ * the first card across both and a last card that would stand alone across both too.
  */
 export function WrappedCards({ m }: { m: WrappedModel }) {
   const low = isLowData(m);
   return (
-    <div className="mx-auto flex max-w-xl flex-col gap-4">
-      <Card title={`Articles read in ${m.year}`} hero>
-        <Big hero>{m.itemsRead}</Big>
-        {m.avgReadSeconds != null ? <Sub>An average read took {durationLabel(m.avgReadSeconds)}.</Sub> : null}
-      </Card>
-      <Card title="Active reading">
-        <Big>{m.activeSeconds > 0 ? hoursLabel(m.activeSeconds) : "Not recorded"}</Big>
-      </Card>
-      <Card title="Days with reading">
-        <Big>{m.daysActive}</Big>
-      </Card>
-      {!low && m.longestStreak > 0 ? (
-        <Card title="Longest streak">
-          <Big>{plural(m.longestStreak, "day")}</Big>
+    <div className="@container">
+      <div className="mx-auto grid max-w-xl grid-cols-1 gap-4 @2xl:max-w-5xl @2xl:grid-cols-2 @2xl:[&>:last-child:nth-child(even)]:col-span-2">
+        <Card title={`Articles read in ${m.year}`} hero>
+          <Big hero>{m.itemsRead}</Big>
+          {m.avgReadSeconds != null ? <Sub>An average read took {durationLabel(m.avgReadSeconds)}.</Sub> : null}
         </Card>
-      ) : null}
-      {!low && m.busiestWeekday != null ? (
-        <Card title="Busiest day">
-          <Big>{weekdayName(m.busiestWeekday)}</Big>
+        <Card title="Active reading">
+          <Big>{m.activeSeconds > 0 ? hoursLabel(m.activeSeconds) : "Not recorded"}</Big>
         </Card>
-      ) : null}
-      {!low && m.busiestHour != null ? (
-        <Card title="Busiest hour">
-          <Big>{hourLabel(m.busiestHour)}</Big>
+        <Card title="Days with reading">
+          <Big>{m.daysActive}</Big>
         </Card>
-      ) : null}
-      {!low && m.busiestMonth != null ? (
-        <Card title="Busiest month">
-          <Big>{monthName(m.busiestMonth)}</Big>
-        </Card>
-      ) : null}
-      {m.topSources.length > 0 ? (
-        <Card title="Top sources">
-          <ol className="flex flex-col gap-1 text-lg">
-            {m.topSources.map((s) => (
-              <li key={s.feedId} className="flex items-baseline justify-between gap-3">
-                <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{s.name}</span>
-                <span className="shrink-0 tabular-nums text-fg2">{s.items}</span>
-              </li>
-            ))}
-          </ol>
-        </Card>
-      ) : null}
-      {m.longestRead ? (
-        <Card title="Longest read">
-          <p className="line-clamp-2 text-2xl leading-snug font-bold [overflow-wrap:anywhere]">{m.longestRead.title}</p>
-          <Sub>
-            {m.longestRead.feed}, {durationLabel(m.longestRead.seconds)}
-          </Sub>
-        </Card>
-      ) : null}
-      {low ? (
-        <p className="rounded-xl bg-surface px-3 py-2 text-sm text-fg2">
-          Only {plural(m.historyDays, "day")} of reading in {m.year} so far. Your busiest day, hour and month and your longest streak appear after a week of reading, and then you can share your year.
-        </p>
-      ) : null}
+        {!low && m.longestStreak > 0 ? (
+          <Card title="Longest streak">
+            <Big>{plural(m.longestStreak, "day")}</Big>
+          </Card>
+        ) : null}
+        {!low && m.busiestWeekday != null ? (
+          <Card title="Busiest day">
+            <Big>{weekdayName(m.busiestWeekday)}</Big>
+          </Card>
+        ) : null}
+        {!low && m.busiestHour != null ? (
+          <Card title="Busiest hour">
+            <Big>{hourLabel(m.busiestHour)}</Big>
+          </Card>
+        ) : null}
+        {!low && m.busiestMonth != null ? (
+          <Card title="Busiest month">
+            <Big>{monthName(m.busiestMonth)}</Big>
+          </Card>
+        ) : null}
+        {m.topSources.length > 0 ? (
+          <Card title="Top sources">
+            <ol className="flex flex-col gap-1 text-lg">
+              {m.topSources.map((s) => (
+                <li key={s.feedId} className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{s.name}</span>
+                  <span className="shrink-0 tabular-nums text-fg2">{s.items}</span>
+                </li>
+              ))}
+            </ol>
+          </Card>
+        ) : null}
+        {m.longestRead ? (
+          <Card title="Longest read">
+            <p className="line-clamp-2 text-2xl leading-snug font-bold [overflow-wrap:anywhere]">{m.longestRead.title}</p>
+            <Sub>
+              {m.longestRead.feed}, {durationLabel(m.longestRead.seconds)}
+            </Sub>
+          </Card>
+        ) : null}
+        {low ? (
+          <p className="rounded-xl bg-surface px-3 py-2 text-sm text-fg2 @2xl:col-span-2">
+            Only {plural(m.historyDays, "day")} of reading in {m.year} so far. Your busiest day, hour and month and your longest streak appear after a week of reading, and then you can share your year.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

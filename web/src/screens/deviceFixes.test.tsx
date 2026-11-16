@@ -867,6 +867,17 @@ describe("manage feeds", () => {
     expect(screen.getByRole("link", { name: "Feed health" })).toHaveAttribute("href", "/health");
   });
 
+  it("the Feed index and Feed health rows end in a chevron, as the other rows that open a screen do", async () => {
+    routes({}, boot3);
+    go("/feeds");
+    await screen.findByText("Alpha");
+    for (const name of ["Feed index", "Feed health"]) {
+      const chevron = screen.getByRole("link", { name }).querySelector("svg.lucide-chevron-right");
+      expect(chevron, name).not.toBeNull();
+      expect(chevron).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
   it("the feed editor says 'On for all feeds' when the global full-text switch is on", async () => {
     const boot = { ...boot3, settings: { "fetch.fulltext_all": true } };
     routes(

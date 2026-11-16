@@ -92,6 +92,21 @@ describe("Settings > Devices", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("tells two unnamed devices of one kind apart by when each was first used, in the row and in the buttons' names", async () => {
+    const older = row("old-phone", { created_at: NOW - 400 * 86400, last_seen_at: NOW - 3 * 86400 });
+    const newer = row("new-phone", { created_at: NOW - 20 * 86400, last_seen_at: NOW - 3 * 86400 });
+    routes({ "GET /api/devices": () => json({ devices: [me, older, newer] }) });
+    go();
+    const items = within(await screen.findByRole("list", { name: "Your devices" })).getAllByRole("listitem");
+    expect(items[1]).toHaveTextContent(/First used /);
+    expect(items[2]).toHaveTextContent(/First used /);
+    expect(items[0]).not.toHaveTextContent(/First used /); // this one's name is its own
+    const names = screen.getAllByRole("button", { name: /^Forget Safari on iPhone/ }).map((b) => b.getAttribute("aria-label"));
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2);
+    expect(names.every((n) => /, last seen 3 days ago, first used /.test(n ?? ""))).toBe(true);
+  });
+
   it("lists this device first even when the API returns it last", async () => {
     routes({ "GET /api/devices": () => json({ devices: [phone, tablet, me] }) });
     go();

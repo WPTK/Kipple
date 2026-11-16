@@ -484,6 +484,17 @@ export function groupLockReason(layout: LayoutId, searching: boolean): string | 
   return layout === "gazette" ? "The Gazette prints its own pages." : layout === "digest" ? "The Digest groups by section." : null;
 }
 
+/** The layouts the Pictures setting changes: the Inbox's thumbnails and the Digest's images. */
+export const hasPictureSetting = (layout: LayoutId): boolean => layout === "inbox" || layout === "digest";
+
+/** Why Pictures is greyed: the layout has no pictures to hide, or always shows its own, or a search lists rows without them. Else null. */
+export function picturesLockReason(layout: LayoutId, searching: boolean): string | null {
+  if (searching) return "A search lists articles without pictures.";
+  if (hasPictureSetting(layout)) return null;
+  if (layout === "compact" || layout === "headlines") return `${LAYOUT_LABELS[layout]} has no pictures.`;
+  return `${layout === "gazette" ? "The Gazette" : LAYOUT_LABELS[layout]} always shows its pictures.`;
+}
+
 /** The parts of a list that decide whether the Digest can cut it by reading time. */
 export interface ListShape {
   view: string;

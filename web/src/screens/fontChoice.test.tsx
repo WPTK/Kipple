@@ -10,7 +10,7 @@ import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
 import { initialLive, liveStore } from "@/api/events";
 import { resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
-import { FONTS } from "@/lib/fonts";
+import { FONTS, isFontInstalled, setFontProbe } from "@/lib/fonts";
 import { DEFAULT_PREFS, prefsStore } from "@/lib/prefs";
 import { bootstrap, card, detail, json, mockFetch, pageOf } from "@/test/mockApi";
 import { clearListMemory } from "./ListPane";
@@ -72,8 +72,83 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", NoES);
 });
 afterEach(() => {
+  setFontProbe(null);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("fonts of the device", () => {
+  const optionsOf = (select: HTMLElement) => within(select).getAllByRole("option").map((o) => (o as HTMLOptionElement).textContent);
+
+  it("leaves out the ones this device lacks, and keeps the rest", async () => {
+    media(true);
+    routes();
+    setFontProbe((family) => family === "Georgia" || family === "Menlo");
+    go("/settings/appearance");
+    const select = await screen.findByRole("combobox", { name: "Reading font" });
+    const labels = optionsOf(select);
+    for (const gone of ["New York", "Charter", "SF Pro", "SF Mono"]) expect(labels).not.toContain(gone);
+    expect(labels).toEqual(expect.arrayContaining(["Georgia", "Menlo", "Literata", "Inter"]));
+    expect(select.querySelector('optgroup[label="On this device"]')).not.toBeNull();
+  });
+
+  it("keeps a chosen font that is missing, greyed and named as not installed", async () => {
+    media(true);
+    routes();
+    setFontProbe(() => false);
+    prefsStore.set({ ...DEFAULT_PREFS, font: "charter" });
+    go("/settings/appearance");
+    const select = await screen.findByRole("combobox", { name: "Reading font" });
+    const option = within(select).getByRole("option", { name: "Charter (not installed)" }) as HTMLOptionElement;
+    expect(option.disabled).toBe(true);
+    expect(option.selected).toBe(true);
+    expect(optionsOf(select)).not.toContain("Georgia");
+    expect(select.querySelector('optgroup[label="On this device"]')).not.toBeNull();
+  });
+
+  it("drops the whole group when none is installed and none is chosen", async () => {
+    media(true);
+    routes();
+    setFontProbe(() => false);
+    go("/settings/appearance");
+    const select = await screen.findByRole("combobox", { name: "Reading font" });
+    expect(select.querySelector('optgroup[label="On this device"]')).toBeNull();
+    expect(optionsOf(select)).toContain("Literata");
+  });
+
+  it("asks the check once per family and takes a font as there where the browser cannot tell", () => {
+    const seen: string[] = [];
+    setFontProbe((family) => (seen.push(family), family === "Menlo"));
+    const menlo = FONTS.find((f) => f.id === "menlo") as (typeof FONTS)[number];
+    expect(isFontInstalled(menlo)).toBe(true);
+    expect(isFontInstalled(menlo)).toBe(true);
+    expect(seen).toEqual(["Menlo"]);
+    expect(isFontInstalled(FONTS.find((f) => f.id === "literata") as (typeof FONTS)[number])).toBe(true); // bundled: never asked
+    expect(seen).toEqual(["Menlo"]);
+    setFontProbe(null);
+    expect(isFontInstalled(FONTS.find((f) => f.id === "charter") as (typeof FONTS)[number])).toBe(true); // jsdom has no font API
+  });
+
+  it("measures against the generic families where the browser has a font API", () => {
+    const widths: Record<string, number> = {};
+    const ctx = {
+      font: "",
+      measureText() {
+        return { width: widths[this.font.replace("64px ", "")] ?? 100 };
+      },
+    };
+    Object.defineProperty(document, "fonts", { value: {}, configurable: true });
+    vi.spyOn(document, "createElement").mockReturnValue({ getContext: () => ctx } as unknown as HTMLElement);
+    try {
+      const georgia = FONTS.find((f) => f.id === "georgia") as (typeof FONTS)[number];
+      expect(isFontInstalled(georgia)).toBe(false); // every width equals its generic
+      setFontProbe(null);
+      widths['"Georgia", serif'] = 120;
+      expect(isFontInstalled(georgia)).toBe(true);
+    } finally {
+      Reflect.deleteProperty(document, "fonts");
+    }
+  });
 });
 
 describe.each([

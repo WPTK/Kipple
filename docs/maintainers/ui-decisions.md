@@ -567,7 +567,9 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
 - **Spacing is not in the menu.** The first sketch listed it. It is the text-spacing accessibility setting, device-wide and
   not a list choice, so it stays in Settings, Appearance.
 - **Pictures says where it applies.** A muted line, "Applies to Inbox and Digest.", sits under Show and Hide: only those two
-  layouts have pictures that Hide can remove (Editorial and Cards always show theirs, Compact and Headlines have none).
+  layouts have pictures that Hide can remove (Editorial, Cards and the Gazette always show theirs, Compact and Headlines have none).
+  In every other layout, and in a search, the choices are greyed like Order's and the line gives the reason ("Cards always shows
+  its pictures."); they stay focusable.
 - **Hints checked against the code.** The Gazette is always newest first (`followsOrder`), so "Pages, newest first" is true;
   the Digest offers Folders, Feeds and Reading time, so its hint names all three.
 

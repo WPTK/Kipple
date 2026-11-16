@@ -4,7 +4,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckSquare, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronRight, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage, failed } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -884,12 +884,14 @@ export function FeedsScreen() {
               <ul className="mb-2 flex flex-col gap-1">
                 <li>
                   <Link to={DESTINATIONS.feedIndex.to} className={row}>
-                    {DESTINATIONS.feedIndex.label}
+                    <span className="min-w-0 flex-1">{DESTINATIONS.feedIndex.label}</span>
+                    <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-fg2" />
                   </Link>
                 </li>
                 <li>
                   <Link to="/health" className={row}>
-                    Feed health
+                    <span className="min-w-0 flex-1">Feed health</span>
+                    <ChevronRight aria-hidden="true" className="size-5 shrink-0 text-fg2" />
                   </Link>
                 </li>
               </ul>

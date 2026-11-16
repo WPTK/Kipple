@@ -96,6 +96,17 @@ describe("Settings > About", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("lists the keys, the arrow keys, Home, End, Page up and down, Enter and Esc, and none that is a single letter", async () => {
+    routes();
+    const { container } = go("/settings/about");
+    const section = (await screen.findByRole("heading", { level: 2, name: "Keyboard" })).closest("section") as HTMLElement;
+    const keys = [...section.querySelectorAll("kbd")].map((k) => k.textContent ?? "");
+    expect(keys).toEqual(expect.arrayContaining(["Up arrow", "Down arrow", "Home", "End", "Page up", "Page down", "Enter", "Esc"]));
+    expect(keys.filter((k) => k.length === 1)).toEqual([]);
+    expect(section).toHaveTextContent(/leave the article you are reading and return to its list/);
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
   it("Copy debug info shows the block, then copies it", async () => {
     routes();
     const writeText = vi.fn().mockResolvedValue(undefined);

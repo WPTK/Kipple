@@ -19,6 +19,7 @@ import {
   noReadingTimeSections,
   orderLockReason,
   overrideTarget,
+  picturesLockReason,
   sectionsFor,
   updateDevicePrefs,
   useDevicePrefs,
@@ -191,7 +192,7 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
             </p>
           ) : null}
 
-          <PicturesChoice />
+          <PicturesChoice why={picturesLockReason(layout.id, !!scope.q)} />
 
           {target ? (
             <>
@@ -241,8 +242,11 @@ export function LayoutMenu({ scope }: { scope: Scope }) {
   );
 }
 
-/** Pictures, Show or Hide: the Inbox's thumbnails and the Digest's images. The same device setting as Settings, Appearance, Lists. */
-function PicturesChoice() {
+/**
+ * Pictures, Show or Hide: the Inbox's thumbnails and the Digest's images. The same device setting as Settings, Appearance, Lists.
+ * `why` is set where the list has nothing for it to change: the choices grey, as Order's do, and the line says why.
+ */
+function PicturesChoice({ why }: { why: string | null }) {
   const dp = useDevicePrefs();
   return (
     <>
@@ -252,15 +256,16 @@ function PicturesChoice() {
         aria-describedby={PICTURES_NOTE_ID}
         value={dp.listImages ? "show" : "hide"}
         onValueChange={(v) => {
+          if (why) return;
           updateDevicePrefs({ listImages: v === "show" });
           announce(v === "show" ? "Pictures shown in lists" : "Pictures hidden in lists");
         }}
       >
-        <Radio value="show" label="Show" />
-        <Radio value="hide" label="Hide" />
+        <Radio value="show" label="Show" unavailable={!!why} describedBy={PICTURES_NOTE_ID} />
+        <Radio value="hide" label="Hide" unavailable={!!why} describedBy={PICTURES_NOTE_ID} />
       </DropdownMenu.RadioGroup>
       <p id={PICTURES_NOTE_ID} className="px-3 pt-1 pb-2 text-xs text-fg2">
-        Applies to Inbox and Digest.
+        {why ?? "Applies to Inbox and Digest."}
       </p>
     </>
   );

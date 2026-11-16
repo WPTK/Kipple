@@ -80,6 +80,18 @@ describe("Wrapped screen", () => {
     expect(screen.getByRole("region", { name: "Your year" })).toHaveAttribute("tabindex", "0");
   });
 
+  it("lays the cards out by the width of the screen itself: one column, then two with the first card across both", async () => {
+    setup();
+    go();
+    const hero = await screen.findByRole("region", { name: "Articles read in 2026" });
+    const grid = hero.parentElement as HTMLElement;
+    expect(grid.parentElement).toHaveClass("@container");
+    expect(grid).toHaveClass("grid", "grid-cols-1", "@2xl:grid-cols-2");
+    expect(hero).toHaveClass("@2xl:col-span-2");
+    expect(screen.getByRole("region", { name: "Active reading" })).not.toHaveClass("@2xl:col-span-2");
+    expect([...grid.children]).toHaveLength(9); // every card is a direct child of the grid
+  });
+
   it("offers the years from the first event and refetches the chosen one", async () => {
     const user = userEvent.setup();
     const m = setup();
