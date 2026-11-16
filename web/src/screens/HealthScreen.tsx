@@ -63,9 +63,9 @@ export function healthFilter(feeds: HealthFeed[], filter: Filter, q: string): He
     if (needle && !`${f.title} ${f.url}`.toLowerCase().includes(needle)) return false;
     switch (filter) {
       case "attention":
-        return ["dead", "failing", "erroring", "throttled", "redirecting"].includes(f.status);
+        return ["dead", "failing", "erroring", "throttled"].includes(f.status);
       case "redirects":
-        return f.redirect_pending || f.notices.some((n) => n.includes("redirect"));
+        return f.status === "redirecting";
       case "off":
         return !f.enabled && f.status !== "dead"; // a gone feed is off too, but it needs attention and is counted there
       default:
@@ -177,6 +177,11 @@ function Actions({ f, revealKey, onEdit, onLog }: { f: HealthFeed; revealKey: st
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
+}
+
+/** Whether a feed has a redirect notice or an error to show under its row (what RedirectNotice and ErrorLine draw). */
+function hasRowDetail(f: HealthFeed): boolean {
+  return Boolean(f.last_error) || Boolean(f.redirect_pending && f.redirect_to) || f.notices.length > 0;
 }
 
 /** The one-tap fix for a permanent redirect. */
@@ -326,13 +331,14 @@ export function HealthScreen() {
   };
 
   const feeds = useMemo(() => (h.data ? healthSort(healthFilter(h.data.feeds, filter, q), sort, dir) : []), [h.data, filter, q, sort, dir]);
-  // The summary line: how many feeds need attention, are paused, or work. It is also the filter.
+  // The summary line: every feed is in exactly one of four groups (a feed has one status), so the counts add up to the
+  // total. It is also the filter.
   const tally = useMemo(() => {
     const all = (h.data?.feeds ?? []).filter((f) => f.status !== "archive");
     const attention = healthFilter(all, "attention", "").length;
     const off = healthFilter(all, "off", "").length;
     const moved = healthFilter(all, "redirects", "").length;
-    return { total: all.length, attention, off, moved, working: all.length - attention - off };
+    return { total: all.length, attention, off, moved, working: all.length - attention - off - moved };
   }, [h.data]);
   const editing = edit ? boot.data?.feeds.find((f) => f.id === edit.id) : undefined;
   const exitSelect = () => {
@@ -531,10 +537,9 @@ export function HealthScreen() {
             </div>
             <p className="mb-2 text-sm text-fg2" data-testid="health-summary">
               <SummaryPart n={tally.attention} label={tally.attention === 1 ? "feed needs attention" : "feeds need attention"} on={filter === "attention"} onToggle={() => setFilter(filter === "attention" ? "all" : "attention")} urgent />
-              <SummaryPart n={tally.off} label="paused" on={filter === "off"} onToggle={() => setFilter(filter === "off" ? "all" : "off")} />
-              <span>{tally.attention + tally.off === 0 ? `All ${tally.working} feeds working.` : `${tally.working} working.`} </span>
-              {/* Moved feeds are counted again here: a feed can be moved and still work. */}
               <SummaryPart n={tally.moved} label="moved" on={filter === "redirects"} onToggle={() => setFilter(filter === "redirects" ? "all" : "redirects")} />
+              <SummaryPart n={tally.off} label="paused" on={filter === "off"} onToggle={() => setFilter(filter === "off" ? "all" : "off")} />
+              <span>{tally.attention + tally.moved + tally.off === 0 ? `All ${tally.working} feeds working.` : `${tally.working} working.`} </span>
               {filter !== "all" ? (
                 <button type="button" className="hit-row inline-flex items-center text-link underline underline-offset-2" onClick={() => setFilter("all")}>
                   Show all
@@ -569,9 +574,11 @@ export function HealthScreen() {
                     </th>
                   </tr>
                 </thead>
-                <tbody>
-                  {drawn.map((f) => (
-                    <tr key={f.id} className="border-b border-line align-top">
+                {/* One body per feed: its row, then (when there is something to repair or read) a second row under it. The
+                    repair buttons and Details come after the row's Actions menu in the tab order, as they do on the page. */}
+                {drawn.map((f) => (
+                  <tbody key={f.id} className="border-b border-line">
+                    <tr className="align-top">
                       <td className="w-9 py-2 pr-1">
                         {selecting ? (
                           <CheckboxBox aria-label={`Select ${f.title}`} checked={sel.has(f.id)} onChange={() => check(f.id)} />
@@ -579,9 +586,7 @@ export function HealthScreen() {
                       </td>
                       <th scope="row" className="max-w-[24rem] px-3 py-2 text-left font-medium">
                         <span className="block truncate">{f.title}</span>
-                        <span className="block truncate text-xs font-normal text-fg2">{f.url}</span>
-                        <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
-                        <ErrorLine f={f} onEdit={() => setEdit({ id: f.id, address: true })} />
+                        <span className="block text-xs font-normal text-fg2 [overflow-wrap:anywhere]">{f.url}</span>
                       </th>
                       <td className="px-3 py-2">
                         <StatusChip status={f.status} />
@@ -593,8 +598,20 @@ export function HealthScreen() {
                         <Actions f={f} revealKey={f.id} onEdit={() => setEdit({ id: f.id, address: false })} onLog={() => setLog(f)} />
                       </td>
                     </tr>
-                  ))}
-                </tbody>
+                    {hasRowDetail(f) ? (
+                      <tr>
+                        {/* The feed's name as this row's header, so the row's buttons are read with it. */}
+                        <th scope="row" className="p-0 font-normal">
+                          <span className="sr-only">{f.title}</span>
+                        </th>
+                        <td colSpan={5} className="px-3 pb-2">
+                          <RedirectNotice f={f} onDelete={() => askDelete(f.id)} />
+                          <ErrorLine f={f} onEdit={() => setEdit({ id: f.id, address: true })} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                ))}
               </table>
             ) : (
               <ul className="flex flex-col gap-2">
@@ -611,7 +628,7 @@ export function HealthScreen() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{f.title}</p>
-                        <p className="truncate text-xs text-fg2">{f.url}</p>
+                        <p className="text-xs text-fg2 [overflow-wrap:anywhere]">{f.url}</p>
                         <div className="mt-1">
                           <StatusChip status={f.status} />
                           {f.consecutive_failures > 0 ? <span className="block text-xs text-fg2">{f.consecutive_failures} failed in a row</span> : null}

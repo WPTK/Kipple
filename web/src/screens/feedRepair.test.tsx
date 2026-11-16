@@ -92,7 +92,7 @@ describe("the repair surface", () => {
   it("Try now fetches the feed at once and says how it went", async () => {
     const m = go("/l?feed=1", [health()], { "POST /api/feeds/1/refresh": () => json({ outcome: "error", error: "lookup x.test: no such host", error_class: "dns" }) });
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Try .* now$/ }));
+    await user.click(await screen.findByRole("button", { name: /^Try now/ }));
     await waitFor(() => expect(m.calls.some((c) => c.method === "POST" && c.url.pathname === "/api/feeds/1/refresh")).toBe(true));
     expect((await screen.findAllByText(/still can't be fetched: this address does not exist\./)).length).toBeGreaterThan(0);
   });
@@ -131,7 +131,7 @@ describe("a feed the site says is gone", () => {
     go("/l?feed=1", [deadHealth()], { "GET /api/bootstrap": () => json({ ...bootstrap, feeds: [dead], counts: { unread: 0, starred: 0 } }) });
     const box = await screen.findByTestId("feed-repair");
     expect(within(box).getByRole("button", { name: /^Edit address of/ })).toBeInTheDocument();
-    expect(within(box).queryByRole("button", { name: /^Try .* now$/ })).toBeNull();
+    expect(within(box).queryByRole("button", { name: /^Try now/ })).toBeNull();
   });
 
   it("is counted once on Feed health, as needing attention and not as paused", async () => {
@@ -139,7 +139,7 @@ describe("a feed the site says is gone", () => {
     const summary = await screen.findByTestId("health-summary");
     expect(summary).toHaveTextContent("1 feed needs attention. 1 working.");
     expect(within(summary).queryByRole("button", { name: /paused/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Try .* now$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Try now/ })).toBeNull();
     // Refresh now is for feeds that are switched on; the server answers 409 for this one.
     const user = userEvent.setup();
     await user.click(screen.getAllByRole("button", { name: /^Actions for/ })[0]!);

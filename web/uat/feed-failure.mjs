@@ -126,7 +126,7 @@ async function viewport(page, vp, added) {
 
   await step(`${tag} X3`, async () => {
     const repair = page.getByTestId("feed-repair");
-    check(await repair.getByRole("button", { name: /^Try .* now$/ }).isVisible(), `${tag} X3`, "the list has Try now", "the list has no Try now");
+    check(await repair.getByRole("button", { name: /^Try now/ }).isVisible(), `${tag} X3`, "the list has Try now", "the list has no Try now");
     await t.shot(page, `${tag}-feed-failure-repair`);
     await repair.getByRole("button", { name: /^Edit address/ }).click();
     const dlg = page.getByRole("dialog", { name: "Edit feed" });
@@ -138,7 +138,7 @@ async function viewport(page, vp, added) {
     await page.keyboard.press("Escape");
     await dlg.waitFor({ state: "hidden", timeout: 10000 });
     const refresh = page.waitForResponse((r) => /\/api\/feeds\/[^/]+\/refresh/.test(r.url()) && r.request().method() === "POST", { timeout: 20000 });
-    await repair.getByRole("button", { name: /^Try .* now$/ }).click();
+    await repair.getByRole("button", { name: /^Try now/ }).click();
     check(!!(await refresh.catch(() => null)), `${tag} X3`, "Try now fetches the feed at once", "Try now sent no fetch");
   });
 

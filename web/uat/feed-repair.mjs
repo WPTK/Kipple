@@ -99,7 +99,7 @@ async function viewport(page, vp, failingId) {
     if (!failing) return t.fail(`${tag} R2`, "the added feed never recorded a failed fetch");
     await page.goto("/health", { waitUntil: "load" });
     await page.getByRole("button", { name: /^Edit address of/ }).first().waitFor({ timeout: 15000 });
-    check((await page.getByRole("button", { name: /^Try .* now$/ }).count()) > 0, `${tag} R2 try`, "Try now is on the row", "no Try now on the row");
+    check((await page.getByRole("button", { name: /^Try now/ }).count()) > 0, `${tag} R2 try`, "Try now is on the row", "no Try now on the row");
     const details = page.getByRole("button", { name: "Details", exact: true }).first();
     await details.waitFor({ timeout: 15000 });
     check((await details.getAttribute("aria-expanded")) === "false", `${tag} R2 details`, "the server's text is behind Details", "the server's text is not behind Details");

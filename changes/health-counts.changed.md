@@ -1,0 +1,1 @@
+Feed health: the summary counts each feed once, as needs attention, moved, paused or working, so the numbers add up to the total.

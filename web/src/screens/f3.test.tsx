@@ -970,7 +970,7 @@ describe("Feed health", () => {
   it("sorts worst first, filters, and uses plain-English statuses", () => {
     expect(healthSort(HEALTH.feeds, "status", 1).map((f) => f.title)).toEqual(["NPR", "Moved Site", "Zed Blog"]);
     expect(healthSort(HEALTH.feeds, "title", 1).map((f) => f.title)).toEqual(["Moved Site", "NPR", "Zed Blog"]);
-    expect(healthFilter(HEALTH.feeds, "attention", "").map((f) => f.title)).toEqual(["NPR", "Moved Site"]);
+    expect(healthFilter(HEALTH.feeds, "attention", "").map((f) => f.title)).toEqual(["NPR"]);
     expect(healthFilter(HEALTH.feeds, "redirects", "").map((f) => f.title)).toEqual(["Moved Site"]);
     expect(healthFilter(HEALTH.feeds, "all", "zed").map((f) => f.title)).toEqual(["Zed Blog"]);
   });

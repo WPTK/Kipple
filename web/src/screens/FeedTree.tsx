@@ -372,7 +372,8 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
     <>
       {favList.length > 0 ? (
         <section aria-label="Favorites" className="mb-2">
-          <h2 id={`${headingId}-fav`} className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</h2>
+          {/* A label, not a heading: the sidebar comes before the page's h1 in reading order, so none of it outranks the title. */}
+          <p id={`${headingId}-fav`} className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</p>
           <ul
             ref={favRef}
             role="tree"
@@ -392,7 +393,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
         </section>
       ) : null}
       <SavedSearchesNav onNavigate={onNavigate} />
-      <h2 id={`${headingId}-feeds`} className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</h2>
+      <p id={`${headingId}-feeds`} className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</p>
       <ul
         ref={allRef}
         role="tree"

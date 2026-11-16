@@ -34,9 +34,8 @@ export function RetentionDialog({ keep, apply, onConfirm, onClose }: { keep?: nu
       }
       footer={
         <>
-          <Button onClick={onClose}>
-            Cancel
-          </Button>
+          {/* With nothing to remove there is no choice to cancel: the message is all there is, and it is closed. */}
+          <Button onClick={onClose}>{apply && none ? "Close" : "Cancel"}</Button>
           {apply && none ? null : (
             <Button
               variant="solid"
