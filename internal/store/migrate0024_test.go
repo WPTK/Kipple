@@ -26,10 +26,10 @@ func seedUnreadItems(e *env, n int) {
 			CASE WHEN i % 500 = 0 THEN 0 ELSE (i * 7919) % 3000 + 1 END, 'A title of some length ' || i, 'https://a.example/' || i FROM n`, n)
 }
 
-// 0022 widens idx_items_unread_sort and changes no row: a schema-21 database (the narrow index back and
+// 0024 widens idx_items_unread_sort and changes no row: a schema-23 database (the narrow index back and
 // user_version stepped back, with planner statistics gathered for it) upgrades to the same objects as a fresh
 // one, and its length-filtered page is read from the index alone.
-func TestMigration0022WidensTheUnreadSortIndex(t *testing.T) {
+func TestMigration0024WidensTheUnreadSortIndex(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	for f := range 3 {
@@ -41,7 +41,7 @@ func TestMigration0022WidensTheUnreadSortIndex(t *testing.T) {
 	e.exec("DROP INDEX idx_items_unread_sort")
 	e.exec(narrowUnreadSort)
 	e.exec("ANALYZE")
-	e.exec("PRAGMA user_version = 21")
+	e.exec("PRAGMA user_version = 23")
 	path := scalar[string](t, e.db.Reader(), "SELECT file FROM pragma_database_list WHERE name = 'main'")
 	require.NoError(t, e.db.Close())
 
