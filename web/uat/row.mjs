@@ -280,11 +280,14 @@ await t.eachViewport(async (page, vp) => {
         imgs.filter((i) => i.complete && i.naturalWidth).map((i) => {
           const r = i.getBoundingClientRect();
           const f = i.naturalWidth / i.naturalHeight / (r.width / r.height);
-          return { ratio: r.width / r.height, kept: Math.min(f, 1 / f), fit: getComputedStyle(i).objectFit };
+          // Above the text when the title starts below the picture's bottom edge; beside it otherwise.
+          const title = i.closest("article").querySelector("h3");
+          const above = !!title && title.getBoundingClientRect().top >= r.bottom - 1;
+          return { ratio: r.width / r.height, above, kept: Math.min(f, 1 / f), fit: getComputedStyle(i).objectFit };
         }),
       );
       check(pics.length > 0, `${tag} W6 loaded`, "pictures loaded", "none did");
-      const frame = pics.every((p) => Math.abs(p.ratio - 2) < 0.05 /* above the text */ || Math.abs(p.ratio - 16 / 9) < 0.05 /* beside it */ || p.ratio < 1.2 /* side by side keeps its own frame */);
+      const frame = pics.every((p) => (p.above ? Math.abs(p.ratio - 2) < 0.05 : Math.abs(p.ratio - 16 / 9) < 0.05 || p.ratio < 1.2 /* side by side keeps its own frame */));
       check(frame, `${tag} W6 frame`, "every lead keeps one frame", JSON.stringify(pics.slice(0, 3)));
       const rule = pics.every((p) => (p.kept >= 0.75 ? p.fit === "cover" : p.fit === "contain"));
       check(rule, `${tag} W6 fit`, "a picture fills its frame only when its shape is close to it", JSON.stringify(pics.slice(0, 4)));
