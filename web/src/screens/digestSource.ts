@@ -7,6 +7,7 @@ import { chainOf, folderTree } from "@/lib/folderTree";
 import { byFeed, byFolder, byLength, type Section } from "@/lib/sections";
 import { createStore, useStore, useStoreSelector } from "@/lib/store";
 import { arrivedAfter } from "@/lib/itemActions";
+import { listCards } from "@/lib/listSnapshot";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { NEW_ROWS, visitStore } from "@/lib/catchup";
 import { EXPAND_BATCH, fixedSections, groupFeeds, layoutDigest, orderSections, type LoadedSection } from "@/layouts/digestPlan";
@@ -125,7 +126,7 @@ const sectionScope = (scope: Pick<Scope, "view" | "length" | "after">, s: { scop
 
 function shape(data: InfiniteData<ItemsPage>, more: boolean): NonNullable<SectionResult["data"]> {
   const last = data.pages[data.pages.length - 1];
-  return { cards: data.pages.flatMap((p) => p.items), more: more || !!last?.next_cursor, asOf: data.pages[0]?.as_of };
+  return { cards: listCards(data), more: more || !!last?.next_cursor, asOf: data.pages[0]?.as_of };
 }
 
 /** The section's list as the cache holds it now (no request is made). */

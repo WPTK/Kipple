@@ -248,24 +248,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		out = full
 		if used < len(cards) && len(q.IDs) == 0 {
 			// Cut at the byte bound: the continuation starts after the last card consumed, even one that
-			// is gone (it still marks the position). A relevance list's cursor carries the rank, which
-			// only the list knows, so that one asks the list again for the shorter page.
-			if last := cards[used-1]; !q.Rank {
-				cur = store.Cursor{SortAt: last.SortAt, ID: last.ID, Asc: q.Oldest, Fallback: fallback}.Encode()
-			} else {
-				q.Limit = used
-				if _, next, _, err = s.db.ListCardsFB(r.Context(), q); errors.Is(err, store.ErrSearchTooBroad) {
-					writeErrorMsg(w, http.StatusUnprocessableEntity, "search_too_broad", "That search matches too much. Add a longer or more specific word.")
-					return
-				} else if err != nil {
-					s.serverError(w, "list items", err)
-					return
-				}
-				cur = nil
-				if next != nil {
-					cur = next.Encode()
-				}
-			}
+			// is gone (it still marks the position). A relevance list's cursor also carries the card's
+			// rank, which the list returned with the card, so no second query runs.
+			last := cards[used-1]
+			cur = store.Cursor{SortAt: last.SortAt, ID: last.ID, Rank: last.Rank, ByRank: q.Rank, Asc: q.Oldest, Fallback: fallback}.Encode()
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out, "next_cursor": cur, "as_of": strconv.FormatInt(asOf, 10), "fallback": fallback})

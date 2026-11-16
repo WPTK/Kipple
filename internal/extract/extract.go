@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"codeberg.org/readeck/go-readability/v2"
+	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
 
 	"github.com/WPTK/kipple/internal/feedurl"
@@ -221,12 +222,24 @@ func (e *Extractor) Extract(ctx context.Context, t Target) (Result, error) {
 	return readable(body, u.String(), resp.Request.URL)
 }
 
+// cleanArticle is what the extracted article goes through; a test replaces it to see what it is given.
+var cleanArticle = sanitize.Content
+
 // readable turns an HTML page into the reading view. It is the part of Extract that handles untrusted markup, split
 // out so it can be fuzzed without a server. pageURL is the article address from the feed item, final where redirects ended.
 func readable(body io.Reader, pageURL string, final *url.URL) (Result, error) {
+	// The parser builds the whole tree before it compares the element count with its limit, so a page of millions of
+	// tiny elements holds hundreds of MB by then. The tokenizer counts the same start tags without building anything.
+	page, err := io.ReadAll(body)
+	if err != nil {
+		return Result{}, fail("could not read the page: %s", cleanErr(err))
+	}
+	if tooManyElements(page, maxElems) {
+		return Result{}, fail("no readable content found: documents too large: more than %d elements", maxElems)
+	}
 	p := readability.NewParser()
 	p.MaxElemsToParse = maxElems
-	art, err := p.Parse(body, final)
+	art, err := p.Parse(bytes.NewReader(page), final)
 	if err != nil {
 		return Result{}, fail("no readable content found: %s", cleanErr(err))
 	}
@@ -239,7 +252,8 @@ func readable(body io.Reader, pageURL string, final *url.URL) (Result, error) {
 	}
 	// The same pipeline as feed content: absolutize against the article URL
 	// (the item link first, then where redirects ended), then the feed policy.
-	htmlOut, text := sanitize.Content(buf.String(), pageURL, final.String())
+	article, _ := sanitize.CutHTML(buf.String(), sanitize.MaxItemHTMLBytes)
+	htmlOut, text := cleanArticle(article, pageURL, final.String())
 	wc := sanitize.WordCount(text)
 	if wc == 0 {
 		return Result{}, fail("no readable content found")
@@ -249,6 +263,23 @@ func readable(body io.Reader, pageURL string, final *url.URL) (Result, error) {
 		img = sanitize.ResolveURL(art.ImageURL(), pageURL, final.String())
 	}
 	return Result{HTML: htmlOut, Text: text, WordCount: wc, ImageURL: img, SourceURL: final.String()}, nil
+}
+
+// tooManyElements reports whether page has more than limit start tags. A start tag the parser would not turn into an
+// element still counts, so the answer can differ from the parser's by a few tags near the limit.
+func tooManyElements(page []byte, limit int) bool {
+	z := html.NewTokenizer(bytes.NewReader(page))
+	n := 0
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			return false
+		case html.StartTagToken, html.SelfClosingTagToken:
+			if n++; n > limit {
+				return true
+			}
+		}
+	}
 }
 
 // transientTransport reports whether a client.Do error may go away on its own.

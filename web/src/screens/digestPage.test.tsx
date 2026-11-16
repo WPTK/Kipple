@@ -54,7 +54,7 @@ interface Opts {
   fail?: Set<number>;
   extra?: Parameters<typeof mockFetch>[0];
 }
-function routes({ boot, counts, over = () => ({}), asOf = () => "500", fail = new Set(), extra = {} }: Opts) {
+function routes({ boot, counts, over = () => ({}), asOf = () => "900000", fail = new Set(), extra = {} }: Opts) {
   const folderIndex = (u: URL) => boot.folders.findIndex((f) => f.id === u.searchParams.get("folder") || boot.feeds!.find((x) => x.id === u.searchParams.get("feed"))?.folder_id === f.id);
   return mockFetch({
     "GET /api/bootstrap": () => json(boot),
