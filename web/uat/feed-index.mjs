@@ -59,7 +59,7 @@ try {
     broken.c = false;
     const settled = (fn, arg, ms = 10000) => page.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
     // The names of my three blocks, in the order they are drawn (the seeded library has feeds of its own).
-    const mine = () => page.locator("section[data-feed-block] > h2 a").evaluateAll((els) => els.map((e) => e.textContent).filter((s) => s?.toLowerCase().startsWith("uat feed index")));
+    const mine = () => page.locator("section[data-feed-block] h2 a").evaluateAll((els) => els.map((e) => e.textContent).filter((s) => s?.toLowerCase().startsWith("uat feed index")));
     const block = (title) => page.locator("section[data-feed-block]").filter({ has: page.getByRole("link", { name: title, exact: true }) });
     const headlinesOf = (title) => block(title).locator("article[data-item-id] h3").allTextContents();
     const ready = async () => {

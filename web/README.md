@@ -127,8 +127,7 @@ server's `ui.*` metadata also supplies the labels.
 Headlines, Gazette, Digest; the stored ids are still `magazine` and `headlines`), Name of the Gazette (`client.paper_name`;
 empty prints "The Gazette"), Article width (Narrow, Medium, Wide, Full;
 `--kp-col`), Open links in (New tab or Same tab; the default is Same tab on iPhone and iPad, where a link an installed
-app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), Unread badge (Count capped at
-99+, Dot only, Off; tab bar and sidebar), Pictures (Show or Hide) and "Show swipe tips again" (resets the first-run peek). The sidebar and the list column of the reader pane are resizable (drag the
+app claims otherwise leaves an about:blank tab, New tab elsewhere; `lib/links.ts`), Unread badge (Count, with 1.2k above 999 on the sidebar and Feeds rows and a 99+ cap on the tab bar; Dot only; Off), Pictures (Show or Hide) and "Show swipe tips again" (resets the first-run peek). The sidebar and the list column of the reader pane are resizable (drag the
 edge, arrow keys, double-click to reset) and remember their widths. Text spacing (WCAG 1.4.12: Less, Default, More) is in Accessibility, not in the Aa menu.
 
 **Layouts.** Editorial is image-forward (a large lead image, a big title and excerpt, more whitespace; in a wide list
@@ -170,7 +169,7 @@ folder moves there), painted at once and confirmed with "Saved". The star on a f
 top of the sidebar and Feeds (drag those to order them). Favorites live in the server setting
 `library.favorites` (at most 500 `{t, id}` items); a save the server refuses is taken back and shown as an error. "Select" adds checkboxes (shift-click ranges, a checkbox per folder) and a bar with Move (one
 reorder call) and Delete (a confirm with the count, the total starred articles, "delete starred too", progress, and a
-per-feed error list). The sidebar's folders collapse (remembered per device). Feed health is reached from the Feeds
+per-feed error list). The sidebar's folders collapse (remembered per device), all at once from a button, and with more than a dozen feeds both the sidebar and the Feeds screen offer "Find a feed". Feed health is reached from the Feeds
 menu.
 
 **Feed health** (`/health`): a sortable, filterable table on wide screens and cards on phones, plain-English

@@ -52,7 +52,7 @@ const tabLayout = (short: boolean) => (short ? "flex-auto flex-row gap-1 px-0.5"
  */
 function UnreadBadge({ inline }: { inline: boolean }) {
   const boot = useBootstrap();
-  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" noun="" className={inline ? "ml-1 min-w-[calc(3.5ch+0.75rem)] text-center" : "absolute -top-1 -right-2"} />;
+  return <UnreadCount n={boot.data?.counts.unread ?? 0} tone="accent" cap noun="" className={inline ? "ml-1 min-w-[calc(3.5ch+0.75rem)] text-center" : "absolute -top-1 -right-2"} />;
 }
 
 function TabBar() {
