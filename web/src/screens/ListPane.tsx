@@ -140,6 +140,25 @@ export interface ListControls {
 
 /** Away this long (the app in the background, the tab hidden), the list comes back at the newest stories. */
 export const AWAY_MS = 30 * 60 * 1000;
+/** Arrivals (see `LiveState.arrivals`) in the feeds a list covers. */
+function arrivedIn(
+  arrived: Record<string, number>,
+  scope: { feed?: string; folder?: string },
+  feeds: readonly { id: string; folder_id: string }[],
+  folders: readonly { id: string; name: string; parent_id?: string | null }[],
+): number {
+  const sum = (ids: Iterable<string>) => {
+    let n = 0;
+    for (const id of ids) n += arrived[id] ?? 0;
+    return n;
+  };
+  if (scope.feed) return arrived[scope.feed] ?? 0;
+  if (scope.folder) return sum(feedsInFolder(scope.folder, feeds, folders).map((f) => f.id));
+  return sum(Object.keys(arrived));
+}
+
+/** How long an empty list waits after articles arrive before it reloads (feeds finish one after another). */
+const EMPTY_RELOAD_MS = 800;
 
 interface Props {
   scope: Scope;
@@ -1231,6 +1250,29 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     probeDue.current = true;
     void askArrivals();
   }, [refreshes, askArrivals]);
+  // An empty list has nothing to hold in place: the first fetches of new feeds (a poll, an import, the starter feeds) end
+  // without a pill for it, so it reloads by itself when feeds it covers bring in articles. A burst of feeds finishing is one
+  // reload. What was seen is kept in the live state, so a pane that was away and comes back still reloads.
+  const arrivedByFeed = useStoreSelector(liveStore, (s) => s.arrivals);
+  const arrivedHere = arrivedIn(arrivedByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? []);
+  const settledEmpty = items.length === 0 && !src.pending && !src.error;
+  const emptyNow = useRef(false);
+  emptyNow.current = settledEmpty;
+  const startOverRef = useLatestRef(startOver);
+  useEffect(() => {
+    if (!settledEmpty) {
+      // Loaded with articles (or still loading): what has arrived so far is not owed a reload.
+      if (!src.pending && !src.error) liveStore.set((s) => ((s.arrivalsHandled[key] ?? 0) >= arrivedHere ? s : { ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: arrivedHere } }));
+      return;
+    }
+    if (arrivedHere <= (liveStore.get().arrivalsHandled[key] ?? 0)) return;
+    const h = setTimeout(() => {
+      if (!emptyNow.current) return;
+      liveStore.set((s) => ({ ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: Math.max(s.arrivalsHandled[key] ?? 0, arrivedHere) } }));
+      void startOverRef.current();
+    }, EMPTY_RELOAD_MS);
+    return () => clearTimeout(h);
+  }, [arrivedHere, key, settledEmpty, src.pending, src.error, startOverRef]);
   // A refresh that ended while the list was loading is asked about once it has.
   useEffect(() => {
     if (!src.pending) void askArrivals();

@@ -1,0 +1,1 @@
+Your year no longer says "Nothing read" when your browser's date is behind the statistics time zone. The summary now accepts a start date alone and runs it through today in the statistics time zone, and Your year asks for the current year that way.

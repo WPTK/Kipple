@@ -195,7 +195,7 @@ func (s *Server) statsExport(w http.ResponseWriter, r *http.Request) {
 	now := s.now()
 	p, ok := statsRangeParams(qv, now, loc, weekStart, "all")
 	if !ok {
-		badExport(w, "range must be week, month, year or all, or from and to dates (YYYY-MM-DD, to not before from, at most 3660 days)")
+		badExport(w, "range must be week, month, year or all, or from and to dates (YYYY-MM-DD, to not before from, at most 3660 days), or from alone, which runs through today in the stats time zone")
 		return
 	}
 	p.WhenOff = true // a data control: the stored rows are summarised whether or not recording is on

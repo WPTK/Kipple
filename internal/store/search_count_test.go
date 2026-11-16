@@ -118,7 +118,7 @@ func TestCountSearchPlan(t *testing.T) {
 	seedSearch(t, e, sitem{"Apple", "Ann", "apple pie"})
 	for _, starred := range []bool{false, true} {
 		view := map[bool]string{false: "unread", true: "starred"}[starred]
-		sqlText, args, ok := countSearchSQL(CardQuery{View: view, Query: "apple "}, starred, 999)
+		sqlText, args, ok := countSearchSQL(CardQuery{View: view, Query: "apple "}, starred, 999, false)
 		require.True(t, ok)
 		require.Equal(t, 1000, args[len(args)-1], "the walk stops one row past the limit")
 		require.Equal(t, 1, strings.Count(sqlText, "SELECT count(*)"))
@@ -139,6 +139,6 @@ func TestCountSearchPlan(t *testing.T) {
 		require.NotContains(t, plan.String(), "USE TEMP B-TREE")
 		require.NotContains(t, plan.String(), "item_content")
 	}
-	_, _, ok := countSearchSQL(CardQuery{View: "unread", Query: "- + "}, false, 999)
+	_, _, ok := countSearchSQL(CardQuery{View: "unread", Query: "- + "}, false, 999, false)
 	require.False(t, ok, "text with no searchable word needs no statement")
 }

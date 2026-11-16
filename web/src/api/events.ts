@@ -54,6 +54,13 @@ export interface LiveState {
    * counts once). The open list reacts to a change by asking whether articles arrived since it loaded.
    */
   refreshes: number;
+  /**
+   * How many fetches have brought in new articles, by feed id, whatever started them (a poll, a new feed's first fetch,
+   * an import). A list that is empty reloads when the feeds it covers have a higher count than `arrivalsHandled` holds for that list.
+   */
+  arrivals: Record<string, number>;
+  /** The arrivals (summed over a list's feeds) each list, by its scope, has already reloaded for or loaded with. Kept here so it outlives the pane. */
+  arrivalsHandled: Record<string, number>;
   transport: "connecting" | "open" | "fallback";
 }
 
@@ -86,6 +93,8 @@ export const initialLive: LiveState = {
   lastId: 0,
   finished: {},
   refreshes: 0,
+  arrivals: {},
+  arrivalsHandled: {},
   transport: "connecting",
 };
 
@@ -197,11 +206,14 @@ function reduceRun(s: LiveState, ev: ServerEvent, at: number): LiveState {
       );
     }
     case "fetch.done": {
-      if (!(ev.data.new_items > 0) || !isManualTrigger(ev.data.trigger)) return s;
+      if (!(ev.data.new_items > 0)) return s;
       const feed = String(ev.data.feed_id);
+      const arrivals = { ...s.arrivals, [feed]: (s.arrivals[feed] ?? 0) + 1 };
+      if (!isManualTrigger(ev.data.trigger)) return { ...s, arrivals };
       const ids = (ev.data.new_item_ids ?? []).map(String);
       return {
         ...s,
+        arrivals,
         pendingByFeed: { ...s.pendingByFeed, [feed]: (s.pendingByFeed[feed] ?? 0) + ev.data.new_items },
         pendingIds: ids.length ? { ...s.pendingIds, [feed]: [...(s.pendingIds[feed] ?? []), ...ids].slice(-PENDING_IDS_CAP) } : s.pendingIds,
       };
