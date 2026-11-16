@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
-import { flattenItems, useBootstrap, useItems } from "@/api/queries";
+import { useBootstrap, useItems } from "@/api/queries";
+import { listCards } from "@/lib/listSnapshot";
 import type { Card, Scope } from "@/api/types";
 import { useFavorites } from "@/lib/favorites";
 import { pageOf, useResolvedLayout } from "@/layouts";
@@ -49,7 +50,7 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
     },
     [paged, feeds, folders, favorites, feed, folder, id],
   );
-  const listed = useMemo(() => flattenItems(list.data), [list.data]);
+  const listed = useMemo(() => listCards(list.data), [list.data]);
   const cards = digested ? digest.loadedCards : listed;
   // A Digest section that failed to load is still to come: asking again retries it, so Next never calls that the end.
   const more = digested ? digest.more || digest.digest.sections.some((s) => s.error != null) : !!list.hasNextPage;
@@ -64,7 +65,7 @@ export function useListOrder(scope: Scope, id: string, enabled: boolean): ListOr
     }
     const r = await list.fetchNextPage();
     if (r.isFetchNextPageError) throw r.error; // a page that failed to load is not the end of the list
-    return { ids: orderOf(flattenItems(r.data), !!r.hasNextPage), more: !!r.hasNextPage };
+    return { ids: orderOf(listCards(r.data), !!r.hasNextPage), more: !!r.hasNextPage };
   };
   return { ids, cards, more, fetchMore };
 }

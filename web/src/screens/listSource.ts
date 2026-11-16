@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { flattenItems, keys, useItems } from "@/api/queries";
+import { keys, useItems } from "@/api/queries";
+import { listCards } from "@/lib/listSnapshot";
 import type { Card, Scope } from "@/api/types";
 import type { DigestView } from "@/layouts/types";
 
@@ -69,7 +70,7 @@ export interface ListSource {
 export function useItemsSource(scope: Scope, paged: boolean, enabled = true): ListSource {
   const qc = useQueryClient();
   const q = useItems(scope, enabled);
-  const cards = useMemo(() => flattenItems(q.data), [q.data]);
+  const cards = useMemo(() => listCards(q.data), [q.data]);
   const startOver = useCallback(() => qc.resetQueries({ queryKey: keys.items(scope) }), [qc, scope]);
   const first = q.data?.pages[0];
   return {
