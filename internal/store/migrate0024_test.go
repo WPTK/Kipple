@@ -57,6 +57,9 @@ func TestMigration0024WidensTheUnreadSortIndex(t *testing.T) {
 	}
 	seedUnreadItems(e, 3000)
 	fresh := schemaObjects(t, e.db.Reader())
+	// The seeded sort_at values are past their (tiny) crawl seconds; stepping back to 23 also runs the later
+	// sort_at migration, so state the rows the way it leaves them.
+	e.exec("UPDATE items SET sort_at = id / 1000000 WHERE sort_at > id / 1000000")
 	rowsBefore := scalar[string](t, e.db.Reader(), itemRows)
 	require.Equal(t, wideUnreadSort, scalar[string](t, e.db.Reader(), "SELECT sql FROM sqlite_schema WHERE name = 'idx_items_unread_sort'"))
 	e.exec("DROP INDEX idx_items_unread_sort")
