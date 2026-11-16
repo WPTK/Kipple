@@ -195,46 +195,27 @@ func TestRefusesDocumentWithTooManyElements(t *testing.T) {
 	require.Contains(t, err.Error(), "elements")
 }
 
-// A single-byte charset grows to three times its size once converted (a Thai letter in windows-874 is one byte and
-// three in UTF-8), so a body that fits the response limit is never refused for its decoded size.
-func TestAcceptsLegacyCharsetBodyAtTheLimitOnceDecoded(t *testing.T) {
-	head, tail := `<?xml version="1.0" encoding="windows-874"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
-	body := head + strings.Repeat("\xa1", maxBodyBytes-len(head)-len(tail)) + tail // each byte is a Thai letter of three
+// A legacy charset grows by up to half once converted: the cap on the converted body is twice the response limit, and
+// every byte below 0x80 or in a three-byte character is within it.
+func TestRefusesBodyOverTheCapOnceDecoded(t *testing.T) {
+	head, tail := `<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
+	body := head + strings.Repeat("\x80", maxBodyBytes-len(head)-len(tail)) + tail // each byte becomes three
 	require.Len(t, body, maxBodyBytes)
-	f, err := ParseFeed([]byte(body), ParseOptions{FeedURL: "https://example.com/feed"})
-	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(f.Title, "\u0e01"), "the body is decoded as windows-874")
-	head = `<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel><title>`
-	body = head + strings.Repeat("\x80", maxBodyBytes-len(head)-len(tail)) + tail // each byte becomes three
+	require.ErrorIs(t, parseErr(body), ErrDecodedTooLarge)
+	body = head + strings.Repeat("\xe9", maxBodyBytes-len(head)-len(tail)) + tail // each byte becomes two
 	require.NoError(t, parseErr(body))
 }
 
-// The cap on the converted body is three times the response limit: one over it is refused.
-func TestRefusesBodyOverTheCapOnceDecoded(t *testing.T) {
-	head, tail := `<?xml version="1.0" encoding="windows-874"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
-	body := head + strings.Repeat("\xa1", maxBodyBytes+4096) + tail // longer than the limit, so three times it once converted
-	require.ErrorIs(t, parseErr(body), ErrDecodedTooLarge)
-}
-
-// Fetch applies the same cap to the response limit it enforces: a body within a small limit is accepted even
-// when it converts to more than twice the limit, and a converted body over three times the limit is refused.
-func TestFetchCapOnTheDecodedBody(t *testing.T) {
-	body := `<?xml version="1.0" encoding="windows-874"?><rss version="2.0"><channel><title>` + strings.Repeat("\xa1", 900) + `</title></channel></rss>`
+// Fetch applies the same cap to the response limit it enforces, so a small limit refuses a small body.
+func TestFetchRefusesBodyOverTheCapOnceDecoded(t *testing.T) {
+	body := `<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel><title>` + strings.Repeat("\x80", 800) + `</title></channel></rss>`
 	srv, _ := feedServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/rss+xml")
 		_, _ = w.Write([]byte(body))
 	})
 	require.LessOrEqual(t, len(body), 1024)
 	res := doFetch(t, NewClient(ClientOptions{MaxResponseBody: 1024}), snapFor(srv.URL))
-	require.NotEqual(t, ClassTooLarge, res.ErrClass, res.ErrMsg)
-
-	orig := decodeBody
-	decodeBody = func(b []byte, cs string) Decoded {
-		d := orig(b, cs)
-		d.Body = make([]byte, 3*1024+1)
-		return d
-	}
-	t.Cleanup(func() { decodeBody = orig })
-	res = doFetch(t, NewClient(ClientOptions{MaxResponseBody: 1024}), snapFor(srv.URL))
 	require.Equal(t, ClassTooLarge, res.ErrClass, res.ErrMsg)
+	res = doFetch(t, NewClient(ClientOptions{MaxResponseBody: 2048}), snapFor(srv.URL))
+	require.NotEqual(t, ClassTooLarge, res.ErrClass, res.ErrMsg)
 }

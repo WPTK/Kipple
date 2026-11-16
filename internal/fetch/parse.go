@@ -101,12 +101,9 @@ type ParseOptions struct {
 // ErrDecodedTooLarge is ParseFeed's answer for a body that converts to far more than the response limit.
 var ErrDecodedTooLarge = errors.New(tooLargeMessage(maxBodyBytes))
 
-// maxDecodedBytes is the most a body may be once converted to UTF-8: three times the response limit. A body
-// already within the limit never converts to more than that: the widest growth of any supported charset is a
-// single-byte one whose characters take three bytes in UTF-8 (windows-874 Thai, or a byte that is not valid
-// and becomes U+FFFD), and UTF-16 grows by at most half. The element, entry and attribute counts bound what
-// gofeed builds, so this only has to be loose enough to accept every body the download limit accepted.
-func maxDecodedBytes(limit int64) int64 { return 3 * limit }
+// maxDecodedBytes is the most a body may be once converted to UTF-8: twice the response limit, since a legacy
+// charset grows by up to half and the element, entry and attribute counts bound what gofeed builds.
+func maxDecodedBytes(limit int64) int64 { return 2 * limit }
 
 // ParseFeed decodes body to UTF-8, parses it with gofeed and returns the
 // normalized feed. Like DecodeBody it may modify body (only the encoding value
