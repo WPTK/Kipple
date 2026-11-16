@@ -62,6 +62,7 @@ test('check: a shortened-into-longer label is still reported when a locator asks
   const uat = [{ name: 'x.mjs', text: 'await page.getByRole("button", { name: "Save", exact: true }).click();' }];
   assert.equal(check(diff, new Set(['Save as']), uat).length, 1);
   assert.equal(check(diff, new Set(['Save as']), [{ name: 'x.mjs', text: 'page.getByRole("button", { name: "Save" })' }]).length, 0);
+  assert.equal(check(diff, new Set(['Save as']), [{ name: 'x.mjs', text: 'page.getByRole("button", { name : "Save", exact: true })' }]).length, 1);
 });
 
 test('check: an exact name is the name property, and an attribute selector needs the whole old value', () => {

@@ -224,24 +224,23 @@ await t.eachViewport(async (page, vp) => {
     if (!force.ok) throw new Error(`${where}: the setting never took effect (wanted targets ${targets}, root ${16 * text} px${inset === null ? "" : `, right inset ${inset} px`}; the page has targets ${force.seen.targets}, root ${force.seen.rem} px, right padding of #main ${force.seen.inset})`);
     let g;
     if (degrade) {
-      // What the toolbar shows with its end scrolled to: where its last control lies against its own edge.
+      // Where the toolbar's controls lie, as they are (never scrolled): each one must be inside the toolbar's own edges.
       const reach = () =>
         page.evaluate(() => {
           const tb = document.querySelector('[role="toolbar"][aria-label="Article actions"]');
-          tb.scrollLeft = tb.scrollWidth;
-          const out = { lastRight: Math.round([...tb.querySelectorAll("button")].at(-1).getBoundingClientRect().right), toolbarRight: Math.round(tb.getBoundingClientRect().right) };
-          tb.scrollLeft = 0;
-          return out;
+          const box = tb.getBoundingClientRect();
+          const rects = [...tb.querySelectorAll("button")].map((b) => b.getBoundingClientRect());
+          return { lastRight: Math.round(rects.at(-1).right), toolbarRight: Math.round(box.right), inside: rects.every((r) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5) };
         });
       let r;
       const holds = async () => {
         g = await geometry();
         r = await reach();
-        return g.count === ctl.count && !g.scrollable && g.toolbarRight <= g.vw && r.lastRight <= r.toolbarRight;
+        return g.count === ctl.count && !g.scrollable && g.toolbarRight <= g.vw && r.inside;
       };
       await until(async () => (await holds()) && (!header || headerFits(g)), 3000);
       const state = `root ${g.rem} px, Large targets ${g.targets === "large" ? "on" : "off"}`;
-      check(await holds(), `${where} degrades`, `the window is too narrow for the columns at their floors (${state}), and the toolbar still has all ${g.count} controls, inside the screen, wrapped onto more rows instead of scrolling sideways`, `${g.count} of ${ctl.count} controls, scrollable ${g.scrollable}, the toolbar ends at ${g.toolbarRight} of ${g.vw}, the last control ends at ${r.lastRight} of ${r.toolbarRight} once scrolled (${state})`);
+      check(await holds(), `${where} degrades`, `the window is too narrow for the columns at their floors (${state}), and the toolbar still has all ${g.count} controls, inside the screen, wrapped onto more rows instead of scrolling sideways`, `${g.count} of ${ctl.count} controls, scrollable ${g.scrollable}, the toolbar ends at ${g.toolbarRight} of ${g.vw}, the last control ends at ${r.lastRight} of ${r.toolbarRight}, every control inside ${r.inside} (${state})`);
       if (header) check(headerFits(g), `${where} list header`, `the list header's controls are inside the list column, wrapped if need be (${state})`, `its last control ends at ${g.headerRight}, the list column at ${g.columnRight} (${state})`);
       return { g, bar };
     }
