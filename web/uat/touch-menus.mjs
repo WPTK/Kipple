@@ -62,7 +62,15 @@ await t.eachViewport(async (page, vp) => {
     length: page.getByRole("button", { name: LENGTH }),
     row: page.locator("main article[data-item-id]").first().getByRole("button", { name: /^More actions/ }),
   });
-  const press = (loc) => (vp.mobile ? loc.tap() : loc.click());
+  // On a phone a row's More button is out of sight (the row swipes and long-presses instead), so it is reached the way
+  // a keyboard or screen reader reaches it: focus it and activate it.
+  const press = async (loc, id) => {
+    if (vp.mobile && id === "row") {
+      await loc.focus();
+      await page.keyboard.press("Enter");
+    } else if (vp.mobile) await loc.tap();
+    else await loc.click();
+  };
   // An article opened from the list (by its address, so no tap lands on whatever the list scrolled to).
   const openArticle = async () => {
     await open("/l/unread");
@@ -85,7 +93,7 @@ await t.eachViewport(async (page, vp) => {
       await open("/l/unread");
       const b = buttons();
       for (const id of ["layout", "length", "row"]) {
-        await press(b[id]);
+        await press(b[id], id);
         await menu().waitFor({ timeout: 5000 });
         await stillBox('[role="menu"]');
         const m = await menuBox();
@@ -116,7 +124,7 @@ await t.eachViewport(async (page, vp) => {
     for (const id of ["layout", "length", "row"]) {
       await step(`${tag} ${label} ${id}`, async () => {
         const name = `${tag} ${label} ${id}`;
-        await press(b[id]);
+        await press(b[id], id);
         await menu().waitFor({ timeout: 5000 });
         await stillBox('[role="menu"]');
         const m = await menuBox();
@@ -162,7 +170,7 @@ await t.eachViewport(async (page, vp) => {
         check(back === want, `P2 ${name} return`, `focus returns to "${want}"`, `focus is on "${back}"`);
 
         // A tap on the dimmed page closes the sheet and does not open the row under it.
-        await press(b[id]);
+        await press(b[id], id);
         await menu().waitFor({ timeout: 5000 });
         const before = page.url();
         await page.touchscreen.tap(size[0] / 2, 12);
