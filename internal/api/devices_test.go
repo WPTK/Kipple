@@ -265,7 +265,7 @@ func TestPatchDeviceAcceptsEveryClientKey(t *testing.T) {
 	 "ui.reading_density":"airy","ui.list_density":"dense","ui.mark_read_on_scroll":true,
 	 "client.layout":"digest","client.group":"week","client.list_overrides":{"feed":{"12":{"layout":"inbox","order":"oldest","group":"none","view":"all"}},"folder":{"3":{"layout":"compact"},"8":{"view":"unread"},"5":{"layout":"gazette"},"6":{"layout":"headlines"}}},
 	 "client.paper_name":"` + strings.Repeat("é", 60) + `",
-	 "client.order":"oldest","client.search_order":"relevance","client.list_images":false,"client.peek_seen":true,"client.article_width":"full",
+	 "client.order":"oldest","client.search_order":"relevance","client.list_images":false,"client.peek_seen":true,"client.page_tip_seen":true,"client.article_width":"full",
 	 "client.list_width":400,"client.sidebar_width":300,"client.link_target":"same","client.unread_badge":"dot",
 	 "client.text_size":0.875,"client.adjust_separately":true,"client.shortcuts":false,"client.spacing":"roomy",
 	 "client.motion":"on","client.font_everywhere":true,"client.large_targets":true,"client.highlight_keywords":false,"client.listen":true,"client.voice":"Samantha","client.rate":1.2,

@@ -9,6 +9,8 @@
 // phone 375x812) it checks:
 //   G1  each folder is a section with its name as a heading, in sidebar order, and shows its first three unread stories
 //       and "5 more in UAT Digest A" (the Rows per section setting);
+//   G1b each heading ends with the section's unread count and names it ("UAT Digest A, 8 unread"), and a "Mark section read"
+//       button follows; on touch every story has a seen Star of at least 44 px, and with a mouse none has;
 //   G2  pictures in lists: a story with a picture shows it on the right; Hide (set in the layout menu) shows none;
 //   G3  Quiet Feeds First is a choice in the Layout menu and is saved for the device. A feed's pace is counted from days
 //       of new articles and a seeded library has none, so the order itself (slowest first) is checked by the planner's unit
@@ -64,11 +66,11 @@ try {
     page.on("request", (r) => requests.push(new URL(r.url()).pathname));
     const patch = (b) =>
       page.evaluate((x) => fetch("/api/device", { method: "PATCH", headers: { "Content-Type": "application/json", "X-Kipple-Client": "web" }, body: JSON.stringify(x) }).then((r) => r.status), b);
-    const section = (name) => page.locator("section[data-section]").filter({ has: page.getByRole("heading", { level: 2, name, exact: true }) });
+    const section = (name) => page.locator("section[data-section]").filter({ has: page.locator("h2 > span:first-child").filter({ hasText: new RegExp(`^${name}$`) }) });
     const idsOf = (name) => section(name).locator("article[data-item-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId));
     // Every section draws its heading; only the ones asked for have articles.
-    const loaded = () => page.locator("section[data-section]:has(article[data-item-id]) > h2").allTextContents();
-    const headings = () => page.locator("section[data-section] > h2").allTextContents();
+    const loaded = () => page.locator("section[data-section]:has(article[data-item-id]) > h2 > span:first-child").allTextContents();
+    const headings = () => page.locator("section[data-section] > h2 > span:first-child").allTextContents();
     const mine = async () => (await headings()).filter((h) => h === A || h === B);
     const isRead = (id) => page.evaluate(async (i) => (await (await fetch(`/api/items/${i}`)).json()).read === true, id);
     const readOf = async (ids) => Promise.all(ids.map(isRead));
@@ -142,6 +144,24 @@ try {
         check(shownA.length === 3 && (await more.count()) === 1, `${tag} G1 rows`, "three stories and \"5 more in UAT Digest A\"", `${shownA.length} stories, ${await more.count()} more button(s)`);
         await t.shot(page, `${tag}-digest`);
 
+        // G1b
+        const headingA = section(A).getByRole("heading", { level: 2 });
+        check(/^UAT Digest A, \d+ unread$/.test((await headingA.getAttribute("aria-label")) ?? ""), `${tag} G1b count`, "the heading names its unread count", `the heading is named "${await headingA.getAttribute("aria-label")}"`);
+        check((await section(A).getByRole("button", { name: `Mark section read: ${A}`, exact: true }).count()) === 1, `${tag} G1b mark`, "the heading has a Mark section read button", "none found");
+        const stars = await section(A).locator("article[data-item-id]").evaluateAll((els) =>
+          els.map((e) => {
+            const b = [...e.querySelectorAll("button")].find((x) => (x.getAttribute("aria-label") ?? "").startsWith("Star: "));
+            const r = b?.getBoundingClientRect();
+            return b ? { w: r.width, h: r.height, shown: getComputedStyle(b).opacity === "1" } : null;
+          }),
+        );
+        if (vp.mobile) {
+          const bad = stars.filter((x) => !x || !x.shown || x.w < 44 || x.h < 44);
+          check(stars.length === 3 && bad.length === 0, `${tag} G1b star`, "every story has a seen Star of at least 44 px", `${stars.length} stories, ${bad.length} without one that size`);
+        } else {
+          check(stars.every((x) => x === null), `${tag} G1b star`, "a mouse draws no Star on the stories", "a Star was drawn");
+        }
+
         // G2
         const pictures = () => section(A).locator("article[data-item-id] img").count();
         const withPictures = await pictures();
@@ -180,7 +200,9 @@ try {
         await open();
         const stops = await page.locator('section[data-section] article[data-item-id] a:not([tabindex="-1"])').count();
         check(stops === 1, `${tag} G6 tab stop`, "the page has one Tab stop", `${stops} story links are in the Tab order`);
-        const drawn = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
+        const everything = await page.locator("[data-digest] article[data-item-id], [data-digest] [data-stop-id]").evaluateAll((els) => els.map((e) => e.dataset.itemId ?? e.dataset.stopId));
+        // A fresh page starts on its first story, the one Tab stop; the heading's Mark section read button is drawn before it.
+        const drawn = everything.slice(everything.findIndex((d) => !String(d).startsWith("stop:")));
         const focusId = () => page.evaluate(() => document.activeElement?.closest("[data-item-id],[data-stop-id]")?.getAttribute("data-item-id") ?? document.activeElement?.closest("[data-stop-id]")?.getAttribute("data-stop-id") ?? null);
         // After an arrow key, focus has landed on another row; if it never does, the check that follows reports what it found.
         const focusLeft = (id) => expect.poll(async () => { const now = await focusId(); return now !== null && now !== id; }, { timeout: 3000, intervals: [50] }).toBe(true).catch(() => {});
@@ -192,6 +214,12 @@ try {
           visited.push(await focusId());
         }
         check(visited.join() === drawn.slice(0, visited.length).join(), `${tag} G6 arrows`, "ArrowDown visits stories and \"more\" buttons in the drawn order", `visited ${visited.join(" ")}, drawn ${drawn.slice(0, visited.length).join(" ")}`);
+
+        // The button in the first heading is drawn first: ArrowUp from the first story reaches it, and ArrowDown comes back.
+        await page.locator("[data-digest] article[data-item-id] a").first().focus();
+        await page.keyboard.press("ArrowUp");
+        await focusLeft(drawn[0]);
+        check((await focusId()) === everything[0] && everything[0].startsWith("stop:mark:"), `${tag} G6 heading`, "ArrowUp from the first story reaches the first heading's Mark section read button", `focus is on ${await focusId()}, wanted ${everything[0]}`);
 
         // G6b: Enter on the button, which is reached by the arrow keys and is not a Tab stop.
         const shownBefore = await idsOf(A);

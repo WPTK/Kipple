@@ -30,6 +30,16 @@ export function useMedia(query: string): boolean {
 }
 
 /**
+ * A device whose only pointer is a finger (no mouse, trackpad or pen anywhere): the one query the style sheet's
+ * `row-touch-unseen` rule uses, so what the sheet hides there and what a component adds there agree. Hover does not exist
+ * on it, so a control that waits for hover (More on a page layout's rows) is out of reach, and a visible Star takes its place.
+ */
+export const FINGER_ONLY_QUERY = "not (any-pointer: fine)";
+export function useFingerOnly(): boolean {
+  return useMedia(FINGER_ONLY_QUERY);
+}
+
+/**
  * A short screen: a phone held sideways (about 375 px or less of height). Its chrome has to take less of it. Landscape
  * is part of it, so an upright phone whose keyboard has taken most of the height keeps its layout while you type.
  * Any window that is landscape and 500 px or less tall counts, a short desktop window too: the limit is the height,
