@@ -6,3 +6,4 @@ d36de600f269cedf345510729c1c68e1dc7e9ed4:scripts/fuzz-cache.Tests.ps1:generic-ap
 
 # Name of a browser storage entry in a branch commit that was renamed before merge (looks like a key to the scanner). Approved 2026-11-16.
 178b71e6c94379a7efdbe3071dca7a01d67df451:web/src/lib/deviceZone.ts:generic-api-key:26
+6d71039c0c1c76619da7230722f2207ece9b8f24:web/src/screens/statsZoneOffer.test.tsx:generic-api-key:219
