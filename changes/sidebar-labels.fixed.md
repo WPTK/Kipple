@@ -1,1 +1,0 @@
-Sidebar: Favorites, Saved searches and Feeds are labels, not headings, so a screen reader meets the screen's title first.

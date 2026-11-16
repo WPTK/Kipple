@@ -1,1 +1,0 @@
-Restore: a restore confirmed in the browser is installed only once the backup's record of how its articles were cleaned is removed, so every article is cleaned again at the first start; if the record cannot be removed, the start stops and the restore is tried again at the next one.

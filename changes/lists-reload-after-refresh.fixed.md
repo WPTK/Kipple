@@ -1,1 +1,0 @@
-Reader: when a refresh you start ends, the open list looks for articles newer than it loaded with (including ones fetched on schedule since) and offers them in the "n new articles" pill. They load by themselves only when you are at the top with no article open, no row focused or selected and no menu or dialog up. A list you are part-way down, or are working in, is never moved.

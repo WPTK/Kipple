@@ -1,1 +1,0 @@
-Lists: Editorial and Cards rows are shorter on a phone, with a wider, flatter picture and the star and More buttons on the source line. On a touch screen the buttons are out of view, since swiping and long-press do the same, and stay reachable from a keyboard or screen reader.

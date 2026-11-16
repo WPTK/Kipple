@@ -1,1 +1,0 @@
-Feed health: Try now is named "Try now, <feed>", long addresses wrap, and Tab goes from a feed's menu to its repair buttons and Details.
