@@ -523,20 +523,20 @@ describe("sidebar", () => {
     await waitFor(() => expect(within(nav).queryByRole("region", { name: "Favorites" })).toBeNull());
   });
 
-  it("the unread badge follows the device setting and caps at 99+", async () => {
+  it("the unread badge follows the device setting and shows thousands as 4.3k in the sidebar", async () => {
     routes({}, { ...boot3, counts: { unread: 4321, starred: 0 } });
     media(WIDE);
     go("/l/unread");
     await screen.findByText("Article number 1");
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(nav).getAllByTestId("unread-count")[0]).toHaveTextContent("99+");
+    expect(within(nav).getAllByTestId("unread-count")[0]).toHaveTextContent("4.3k");
     act(() => updateDevicePrefs({ unreadBadge: "off" }));
     expect(within(nav).queryAllByTestId("unread-count")).toHaveLength(0);
     act(() => updateDevicePrefs({ unreadBadge: "dot" }));
     expect(within(nav).getAllByTestId("unread-dot").length).toBeGreaterThan(0);
   });
 
-  it("the tab bar on a phone shows the same badge setting", async () => {
+  it("the tab bar on a phone shows the same badge setting, stopping at 99+ so its width stays fixed", async () => {
     routes({}, { ...boot3, counts: { unread: 1500, starred: 0 } });
     go("/l/unread");
     await screen.findByText("Article number 1");

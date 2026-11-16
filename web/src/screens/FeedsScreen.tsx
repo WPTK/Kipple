@@ -4,7 +4,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { lazyScreen } from "@/lib/lazyScreen";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronRight, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CheckSquare, ChevronRight, ChevronsDownUp, ChevronsUpDown, Download, FolderInput, FolderPlus, GripVertical, ListFilter, Pencil, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import { createFolder, invalidateFeeds, patchFolder, reorder as reorderApi } from "@/api/admin";
 import { ApiError, errorMessage, failed } from "@/api/client";
 import { keys, useBootstrap } from "@/api/queries";
@@ -28,6 +28,9 @@ import {
 } from "@/lib/dnd";
 import { MAX_FOLDER_DEPTH, childrenOf, depthOf, feedOrder, folderPath, folderTree, parentChoices, parentOf, rollUp, subtreeFeeds, subtreeOf, walkRows, type FolderTree, type RowRules } from "@/lib/folderTree";
 import { FolderSelect } from "@/ui/FolderSelect";
+import { FeedFilter } from "@/ui/FeedFilter";
+import { FIND_MIN_FEEDS, feedMatch } from "@/lib/feedFilter";
+import { allCollapsed, setAllCollapsed } from "@/lib/folderCollapse";
 import { useFavorites } from "@/lib/favorites";
 import { clickRow, groupState, toggleGroup } from "@/lib/selection";
 import { cn } from "@/lib/cn";
@@ -242,6 +245,8 @@ export function FeedsScreen() {
   const [selecting, setSelecting] = useState(false);
   // Only the feeds with something unread. Editing and selecting always show every feed (a reorder is saved against the whole tree).
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // Find a feed: the feeds and folders whose names hold this text. Editing and selecting always show every feed, like Unread only.
+  const [query, setQuery] = useState("");
   const [sel, setSel] = useState<Sel>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [bulk, setBulk] = useState<null | "move" | "delete">(null);
@@ -254,13 +259,30 @@ export function FeedsScreen() {
   const folders = useMemo(() => boot.data?.folders ?? [], [boot.data?.folders]);
   const realFeeds = useMemo(() => visibleFeeds(feeds), [feeds]);
   const filtering = unreadOnly && !editMode && !selecting;
+  const ftree = useMemo(() => folderTree(folders), [folders]);
+  const canFind = realFeeds.length > FIND_MIN_FEEDS && !editMode && !selecting;
+  const match = useMemo(() => (canFind ? feedMatch(ftree, realFeeds, query) : null), [canFind, ftree, realFeeds, query]);
+  // Either filter leaves out the folders with nothing left in them.
+  const narrowed = filtering || !!match;
   const byFolder = useMemo(() => {
     const m: Record<string, Feed[]> = {};
     for (const fo of folders) m[fo.id] = [];
-    for (const f of realFeeds) if (!filtering || f.unread > 0) (m[f.folder_id] ??= []).push(f);
+    for (const f of realFeeds) if ((!filtering || f.unread > 0) && (!match || match.has(f.id))) (m[f.folder_id] ??= []).push(f);
     return m;
-  }, [folders, realFeeds, filtering]);
-  const ftree = useMemo(() => folderTree(folders), [folders]);
+  }, [folders, realFeeds, filtering, match]);
+  // How many feeds the name search leaves on screen once Unread only has had its say: the count it announces.
+  const shownFeeds = match ? Object.values(byFolder).reduce((n, list) => n + list.length, 0) : realFeeds.length;
+  // The folders that hold a feed, whatever the filters keep: what collapse all acts on.
+  const folderIds = useMemo(() => {
+    const own = new Map<string, string[]>();
+    for (const f of realFeeds) {
+      const ids = own.get(f.folder_id);
+      if (ids) ids.push(f.id);
+      else own.set(f.folder_id, [f.id]);
+    }
+    const sub = subtreeFeeds(ftree, (id) => own.get(id) ?? []);
+    return ftree.preorder.filter((id) => (sub.get(id)?.length ?? 0) > 0);
+  }, [ftree, realFeeds]);
   const tree: Tree = useMemo(
     () => ({
       folders: [...ftree.preorder],
@@ -269,6 +291,14 @@ export function FeedsScreen() {
     }),
     [ftree, byFolder],
   );
+  // The tree as saved, with every feed: a move made while a name search or Unread only is narrowing the screen is planned
+  // and written to the cache from this, so a feed that is hidden is not dropped from the saved tree until the refetch.
+  const fullTree: Tree = useMemo(() => {
+    const feedsIn: Record<string, string[]> = {};
+    for (const fo of folders) feedsIn[fo.id] = [];
+    for (const f of realFeeds) (feedsIn[f.folder_id] ??= []).push(f.id);
+    return { ...tree, feeds: feedsIn };
+  }, [folders, realFeeds, tree]);
   // The order feeds appear on screen: what shift-click ranges are measured along.
   const visibleOrder = useMemo(() => feedOrder(ftree, (id) => tree.feeds[id] ?? []), [ftree, tree]);
   // Each folder's feeds over its subtree (its Select checkbox), built once per tree, not per row and drag move.
@@ -277,9 +307,9 @@ export function FeedsScreen() {
   // Unread only leaves out every folder with no unread feed in its subtree.
   const hasFeeds = (id: string) => (subtreeIds.get(id)?.length ?? 0) > 0;
   const topLevel = useMemo(
-    () => childrenOf(ftree, null).filter((id) => (filtering ? hasFeeds(id) : editMode || !ftree.byId.get(id)?.is_default || (byFolder[id]?.length ?? 0) > 0)),
+    () => childrenOf(ftree, null).filter((id) => (narrowed ? hasFeeds(id) : editMode || !ftree.byId.get(id)?.is_default || (byFolder[id]?.length ?? 0) > 0)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ftree, byFolder, editMode, filtering, subtreeIds],
+    [ftree, byFolder, editMode, narrowed, subtreeIds],
   );
   // Every folder and feed row in screen order (collapsed folders hide theirs outside Edit and Select): a library of
   // thousands of feeds draws them a step at a time (issue #463).
@@ -288,12 +318,13 @@ export function FeedsScreen() {
   // applies outside them; it is not changed, and returns when the mode ends. The key list and the render share this rule.
   const rules: RowRules = useMemo(
     () => ({
-      subfolders: (id) => (filtering ? childrenOf(ftree, id).filter(hasFeeds) : childrenOf(ftree, id)),
+      subfolders: (id) => (narrowed ? childrenOf(ftree, id).filter(hasFeeds) : childrenOf(ftree, id)),
       feeds: (id) => byFolder[id] ?? [],
-      open: (id) => selecting || editMode || !dp.collapsedFolders.includes(id),
+      // A name search draws every folder open, so a match is never behind a chevron; the saved collapsed set is not changed.
+      open: (id) => selecting || editMode || !!match || !dp.collapsedFolders.includes(id),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ftree, byFolder, selecting, editMode, filtering, subtreeIds, dp.collapsedFolders],
+    [ftree, byFolder, selecting, editMode, narrowed, match, subtreeIds, dp.collapsedFolders],
   );
   const rowKeys = useMemo(() => {
     const out: string[] = [];
@@ -304,14 +335,14 @@ export function FeedsScreen() {
   // The feeds listed under the open favorite folders, in screen order: drawn a step at a time like the tree below (issue #463).
   const favFeedKeys = useMemo(() => {
     const out: string[] = [];
-    if (selecting || editMode) return out;
+    if (selecting || editMode || match) return out;
     for (const fav of favs.favorites) {
       if (fav.t !== "folder" || !ftree.byId.has(fav.id) || dp.collapsedFolders.includes(fav.id)) continue;
       const inFav = subtreeOf(ftree, fav.id);
       for (const f of realFeeds) if (inFav.has(f.folder_id)) out.push(`fav:${fav.id}:${f.id}`);
     }
     return out;
-  }, [favs.favorites, ftree, realFeeds, dp.collapsedFolders, selecting, editMode]);
+  }, [favs.favorites, ftree, realFeeds, dp.collapsedFolders, selecting, editMode, match]);
   const favReveal = useReveal(favFeedKeys);
   // Feeds that share a title show their address under it (issue #484).
 
@@ -336,7 +367,7 @@ export function FeedsScreen() {
    * ends up showing what the server has.
    */
   const saveTree = async (next: Tree) => {
-    const body = reorderBody(tree, next);
+    const body = reorderBody(fullTree, next);
     if (!body) return;
     const planned = failures.current;
     setSaved("saving");
@@ -384,7 +415,7 @@ export function FeedsScreen() {
   };
   /** Save a new tree from a drop or a move button: a refusal is a toast. */
   const applyTree = (next: Tree, what: "folder" | "feed") => saveTree(next).catch((e: unknown) => toast(failed(`move that ${what}`, e, folderError(e)), "error"));
-  const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(tree, folder, { parent, before: null }));
+  const moveFolder = (folder: string, parent: string | null) => saveTree(planFolderDrop(fullTree, folder, { parent, before: null }));
 
   const applyFavs = async (next: Favorite[]) => {
     setSaved("saving");
@@ -693,7 +724,7 @@ export function FeedsScreen() {
             </label>
           ) : (
             <>
-              {editMode ? grip(fsrc, `folder ${label}`) : <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} />}
+              {editMode ? grip(fsrc, `folder ${label}`) : <CollapseToggle folder={fo} collapsed={collapsed} listId={listId} collapsedIds={dp.collapsedFolders} locked={!!match} />}
               <Link to={openListTo({ folder: fo.id })} draggable={false} data-reveal-key={`folder:${fo.id}`} className={`${row} min-w-0 flex-1 text-sm font-semibold`}>
                 <FolderLine name={fo.name} unread={fo.unread} empty={inFolder.length === 0 && subfolders.length === 0} />
               </Link>
@@ -779,6 +810,18 @@ export function FeedsScreen() {
               </DropdownMenu.Item>
               <DropdownMenu.Separator className="my-1 h-px bg-line" />
             </>
+          ) : null}
+          {folderIds.length > 1 && !editMode && !match ? (
+            <DropdownMenu.Item
+              onSelect={() => {
+                const open = allCollapsed(folderIds, dp.collapsedFolders);
+                setAllCollapsed(folderIds, !open);
+                announce(open ? "Expanded all folders" : "Collapsed all folders");
+              }}
+            >
+              <Icon of={allCollapsed(folderIds, dp.collapsedFolders) ? ChevronsUpDown : ChevronsDownUp} />
+              {allCollapsed(folderIds, dp.collapsedFolders) ? "Expand all folders" : "Collapse all folders"}
+            </DropdownMenu.Item>
           ) : null}
           <DropdownMenu.Label className={menuLabel}>Organize</DropdownMenu.Label>
           {realFeeds.length > 0 ? (
@@ -880,7 +923,8 @@ export function FeedsScreen() {
         {/* With no feeds the tree still shows the folders you made, so a new folder is never invisible. */}
         {boot.data && (realFeeds.length > 0 || folders.some((fo) => !fo.is_default)) ? (
           <>
-            {selecting ? null : (
+            {canFind ? <FeedFilter className="px-1 pb-2" value={query} onChange={setQuery} shown={shownFeeds} total={realFeeds.length} /> : null}
+            {selecting || match ? null : (
               <ul className="mb-2 flex flex-col gap-1">
                 <li>
                   <Link to={DESTINATIONS.feedIndex.to} className={row}>
@@ -896,15 +940,17 @@ export function FeedsScreen() {
                 </li>
               </ul>
             )}
-            {favs.favorites.length > 0 && !selecting ? (
+            {favs.favorites.length > 0 && !selecting && !match ? (
               <section aria-label="Favorites" className="mb-3">
                 <h2 className="px-3 pb-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</h2>
                 <ul className="flex flex-col">{favRows}</ul>
                 <RevealMore reveal={favReveal} noun="favorite feeds" />
               </section>
             ) : null}
-            {selecting ? null : <SavedSearchesNav />}
-            {filtering && topLevel.length === 0 ? (
+            {selecting || match ? null : <SavedSearchesNav />}
+            {match && topLevel.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-fg2">{filtering && match.size > 0 ? "No unread feeds match." : "No feeds match."}</p>
+            ) : filtering && topLevel.length === 0 ? (
               <div className="px-3 py-6 text-center">
                 <p className="text-sm text-fg2">Every feed is read.</p>
                 <Button className="mt-2" onClick={() => setUnreadOnly(false)}>

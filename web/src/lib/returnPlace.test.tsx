@@ -12,7 +12,8 @@ function Page() {
   return (
     <div>
       <div ref={scroller} data-testid="scroller">
-        <div>
+        <div data-testid="field" />
+        <div data-testid="content">
           <div data-stop-id="row" data-testid="row">
             <a href="#row" onFocus={() => setStop("row")}>
               row
@@ -74,6 +75,26 @@ describe("useReturnPlace", () => {
     await back(router);
     await back(router); // the first entry again, left at 100 (not the newest place)
     expect(scroller().scrollTop).toBe(100);
+  });
+
+  it("watches every block of the page, not only the first, so a small field above the rows does not hide their changes", async () => {
+    const watched: string[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(el: HTMLElement) {
+          watched.push(el.dataset.testid ?? "");
+        }
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    const router = setup();
+    scrollTo(200);
+    act(() => screen.getByRole("link", { name: "row" }).focus());
+    press("open");
+    await back(router);
+    expect([...new Set(watched)]).toEqual(["field", "content"]);
   });
 
   it("keeps the remembered row where it was left when the rows above it change while the page settles", async () => {

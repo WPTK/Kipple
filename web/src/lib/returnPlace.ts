@@ -70,10 +70,10 @@ export function useReturnPlace<T extends HTMLElement>(name: string, ready: boole
     if (start.stop) rowOf(el, start.stop)?.querySelector<HTMLElement>("a")?.focus({ preventScroll: true });
     // The rows may still change under the place (the data is fetched again on the way back): keep the row where it was
     // left until the reader moves the page or the page has settled.
-    const content = el.firstElementChild;
-    if (!content || typeof ResizeObserver === "undefined") return;
+    // Every direct child is watched: a page may put something small (a field) above the blocks.
+    if (el.childElementCount === 0 || typeof ResizeObserver === "undefined") return;
     const settle = new ResizeObserver(put);
-    settle.observe(content);
+    for (const child of el.children) settle.observe(child);
     const end = () => {
       settle.disconnect();
       clearTimeout(timer);

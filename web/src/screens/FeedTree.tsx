@@ -1,16 +1,20 @@
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Search } from "lucide-react";
 import { useBootstrap } from "@/api/queries";
 import type { Feed, Folder } from "@/api/types";
 import { updateDevicePrefs, useDevicePrefs, type UnreadBadge } from "@/lib/devicePrefs";
 import { useFavorites } from "@/lib/favorites";
 import { childrenOf, folderPath, folderTree, subtreeFeeds, walkRows, type FolderTree, type RowRules } from "@/lib/folderTree";
 import { openListTo } from "@/lib/routes";
+import { FIND_MIN_FEEDS, feedMatch } from "@/lib/feedFilter";
+import { allCollapsed, setAllCollapsed } from "@/lib/folderCollapse";
 import { visibleFeeds } from "@/lib/visibleFeeds";
 import { cn } from "@/lib/cn";
+import { announce } from "@/shell/toasts";
 import { RevealMore, useReveal, type Reveal } from "@/lib/reveal";
 import { FavStar } from "@/ui/FavStar";
+import { FeedFilter } from "@/ui/FeedFilter";
 import { SavedSearchesNav } from "./SavedSearchesNav";
 import { feedLabel } from "./feeds/FeedRowName";
 import { FeedLine, FolderLine } from "./feeds/RowLine";
@@ -31,16 +35,17 @@ const reveal = "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opa
  * The chevron that collapses or expands a folder; the state is per device, shared by every place the folder shows.
  * Inside the sidebar tree it is a pointer target only (`tabIndex` -1): the arrow keys expand and collapse there.
  */
-export function CollapseToggle({ folder, collapsed, listId, collapsedIds, tabIndex }: { folder: Folder; collapsed: boolean; listId: string; collapsedIds: readonly string[]; tabIndex?: number }) {
+export function CollapseToggle({ folder, collapsed, listId, collapsedIds, tabIndex, locked }: { folder: Folder; collapsed: boolean; listId: string; collapsedIds: readonly string[]; tabIndex?: number; /** Every folder is open while a name is searched for: the chevron then changes nothing. */ locked?: boolean }) {
   return (
     <button
       type="button"
       tabIndex={tabIndex}
       aria-expanded={!collapsed}
       aria-controls={collapsed ? undefined : listId}
+      aria-disabled={locked || undefined}
       aria-label={`${collapsed ? "Expand" : "Collapse"} ${folder.name}`}
-      onClick={() => updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder.id) })}
-      className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+      onClick={() => (locked ? undefined : updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder.id) }))}
+      className={cn("hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection", locked && "opacity-50")}
     >
       {collapsed ? <Icon of={ChevronRight} size="sm" /> : <Icon of={ChevronDown} size="sm" />}
     </button>
@@ -57,7 +62,7 @@ const indentCls = (depth: number) => (depth < 4 ? "pl-3" : "pl-1");
  * by construction. When the focused item leaves the screen (taken out of Favorites, collapsed away, moved or deleted
  * elsewhere) the focus goes to the item now in its place, never to the page.
  */
-function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, reveal?: Reveal) {
+function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, reveal?: Reveal, locked?: boolean) {
   const [active, setActive] = useState<string | null>(null);
   const ref = useRef<HTMLUListElement>(null);
   const hadFocus = useRef(false);
@@ -111,11 +116,13 @@ function useTreeKeys(collapsedIds: readonly string[], onGone?: () => void, revea
         else to = list.at(-1);
         break;
       case "ArrowRight":
-        if (expanded === "false" && folder) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
-        else if (expanded === "true" && Number(list[at + 1]?.getAttribute("aria-level")) === level + 1) to = list[at + 1];
+        if (expanded === "false" && folder) {
+          if (!locked) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
+        } else if (expanded === "true" && Number(list[at + 1]?.getAttribute("aria-level")) === level + 1) to = list[at + 1];
         break;
       case "ArrowLeft":
-        if (expanded === "true" && folder) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
+        // A folder held open by a search cannot collapse, so Left goes up to its parent as it does from a feed.
+        if (expanded === "true" && folder && !locked) updateDevicePrefs({ collapsedFolders: toggleCollapsed(collapsedIds, folder) });
         else to = list.slice(0, at).findLast((x) => Number(x.getAttribute("aria-level")) === level - 1);
         break;
       case "Enter":
@@ -157,6 +164,8 @@ interface TreeCtx {
   /** Whether a folder's subtree holds a visible feed (only those folders show). */
   shown: (folder: string) => boolean;
   collapsedIds: readonly string[];
+  /** Every folder is drawn open (a name is being searched for); the saved collapsed set is left as it is. */
+  forceOpen?: boolean;
   /** The device setting that decides what the unread badge shows, and so what the item's name says. */
   unreadBadge: UnreadBadge;
   favs: ReturnType<typeof useFavorites>;
@@ -169,13 +178,13 @@ interface TreeCtx {
   drawn: (key: string) => boolean;
 }
 
-type Rules = Pick<TreeCtx, "tree" | "feedsOf" | "shown" | "collapsedIds">;
+type Rules = Pick<TreeCtx, "tree" | "feedsOf" | "shown" | "collapsedIds" | "forceOpen">;
 
 /** What a folder draws inside it, by one set of rules for the render and for the key list (`rowKeys`). */
 const rulesOf = (ctx: Rules): RowRules => ({
   subfolders: (id) => childrenOf(ctx.tree, id).filter(ctx.shown),
   feeds: ctx.feedsOf,
-  open: (id) => !ctx.collapsedIds.includes(id),
+  open: (id) => !!ctx.forceOpen || !ctx.collapsedIds.includes(id),
 });
 
 /** What a folder shows inside it: its shown subfolders and its feeds; none while collapsed. */
@@ -261,7 +270,7 @@ function FolderItem({ fo, level, ctx, fav }: { fo: Folder; level: number; ctx: T
         data-fav={`folder:${fo.id}`}
         className="group/row flex items-center rounded-lg"
       >
-        {branch ? <CollapseToggle folder={fo} collapsed={collapsed} listId={groupId} collapsedIds={ctx.collapsedIds} tabIndex={-1} /> : null}
+        {branch ? <CollapseToggle folder={fo} collapsed={collapsed} listId={groupId} collapsedIds={ctx.collapsedIds} tabIndex={-1} locked={ctx.forceOpen} /> : null}
         <Link tabIndex={-1} to={openListTo({ folder: fo.id })} onClick={ctx.onNavigate} className={cn(row, "min-w-0 flex-1 pl-1 text-sm font-semibold")}>
           <FolderLine name={name} unread={fo.unread} icon={fav} />
         </Link>
@@ -311,21 +320,42 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const dp = useDevicePrefs();
   const favs = useFavorites();
   const lib = useLibrary(boot.data);
+  // Find a feed: a name filter over what is loaded. It is offered past FIND_MIN_FEEDS feeds, opens from a button, and
+  // while it has text every folder is drawn open (the saved collapsed set is not changed) and Favorites step aside.
+  const [findOpen, setFindOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const findButton = useRef<HTMLButtonElement>(null);
+  const canFind = !!lib && lib.feeds.length > FIND_MIN_FEEDS;
+  const match = useMemo(() => (lib && canFind ? feedMatch(lib.tree, lib.feeds, query) : null), [lib, canFind, query]);
+  // The library the tree draws: the whole of it, or only the feeds the filter keeps and the folders above them.
+  const view = useMemo(() => {
+    if (!lib || !match) return lib;
+    const byFolder = new Map<string, Feed[]>();
+    for (const [id, list] of lib.byFolder) {
+      const kept = list.filter((f) => match.has(f.id));
+      if (kept.length > 0) byFolder.set(id, kept);
+    }
+    const counts = subtreeFeeds(lib.tree, (id) => (byFolder.get(id) ?? []).map((f) => f.id));
+    return { ...lib, byFolder, shownIds: new Set(lib.tree.preorder.filter((id) => (counts.get(id)?.length ?? 0) > 0)) };
+  }, [lib, match]);
   // What the tree draws and how: built once per library and collapsed set, not on every render (a focus move re-renders).
   const base = useMemo(
     () =>
-      lib && {
-        tree: lib.tree,
-        feedsOf: (id: string) => lib.byFolder.get(id) ?? [],
-        shown: (id: string) => lib.shownIds.has(id),
+      view && {
+        tree: view.tree,
+        feedsOf: (id: string) => view.byFolder.get(id) ?? [],
+        shown: (id: string) => view.shownIds.has(id),
         collapsedIds: dp.collapsedFolders,
+        forceOpen: !!match,
         unreadBadge: dp.unreadBadge,
         favs,
         onNavigate,
       },
-    [lib, dp.collapsedFolders, dp.unreadBadge, favs, onNavigate],
+    [view, match, dp.collapsedFolders, dp.unreadBadge, favs, onNavigate],
   );
-  const top = useMemo(() => (lib ? childrenOf(lib.tree, null).filter((id) => lib.shownIds.has(id)) : []), [lib]);
+  const top = useMemo(() => (view ? childrenOf(view.tree, null).filter((id) => view.shownIds.has(id)) : []), [view]);
+  // The folders the collapse-all button acts on: every folder that holds a feed.
+  const folderIds = useMemo(() => (lib ? lib.tree.preorder.filter((id) => lib.shownIds.has(id)) : []), [lib]);
   // The Feeds tree's items in screen order: a library of thousands of feeds draws them a step at a time (issue #463).
   const allVisible = useMemo(() => {
     const out: string[] = [];
@@ -333,7 +363,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
     return out;
   }, [base, top]);
   const reveal = useReveal(allVisible);
-  const { ref: allRef, tabStop: allTabStop, onKeyDown: allKeyDown, onFocus: allFocus, onBlur: allBlur } = useTreeKeys(dp.collapsedFolders, undefined, reveal);
+  const { ref: allRef, tabStop: allTabStop, onKeyDown: allKeyDown, onFocus: allFocus, onBlur: allBlur } = useTreeKeys(dp.collapsedFolders, undefined, reveal, !!match);
   // With Favorites gone, the focus goes to the Feeds tree's tab stop.
   const toFeeds = () => allRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus();
   const favList = useMemo(
@@ -352,6 +382,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
   const favReveal = useReveal(favVisible);
   const { ref: favRef, tabStop: favTabStop, onKeyDown: favKeyDown, onFocus: favFocus, onBlur: favBlur } = useTreeKeys(dp.collapsedFolders, toFeeds, favReveal);
   const headingId = useId();
+  const allClosed = allCollapsed(folderIds, dp.collapsedFolders);
   if (boot.isPending) return <p className="px-3 py-2 text-sm text-fg2" role="status">Loading feeds</p>;
   if (boot.isError || !lib) return <p className="px-3 py-2 text-sm text-danger" role="alert">Couldn't load feeds.</p>;
   if (lib.feeds.length === 0) {
@@ -370,7 +401,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      {favList.length > 0 ? (
+      {favList.length > 0 && !match ? (
         <section aria-label="Favorites" className="mb-2">
           {/* A label, not a heading: the sidebar comes before the page's h1 in reading order, so none of it outranks the title. */}
           <p id={`${headingId}-fav`} className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Favorites</p>
@@ -392,8 +423,52 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
           <RevealMore reveal={favReveal} noun="favorites" />
         </section>
       ) : null}
-      <SavedSearchesNav onNavigate={onNavigate} />
-      <p id={`${headingId}-feeds`} className="mt-3 px-3 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</p>
+      {match ? null : <SavedSearchesNav onNavigate={onNavigate} />}
+      <div className="mt-3 flex items-center gap-1 pr-1 pl-3">
+        <p id={`${headingId}-feeds`} className="min-w-0 flex-1 text-xs font-semibold tracking-wide text-fg2 uppercase">Feeds</p>
+        {folderIds.length > 1 && !match ? (
+          <button
+            type="button"
+            aria-label={allClosed ? "Expand all folders" : "Collapse all folders"}
+            onClick={() => {
+              setAllCollapsed(folderIds, !allClosed);
+              announce(allClosed ? "Expanded all folders" : "Collapsed all folders");
+            }}
+            className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+          >
+            {allClosed ? <Icon of={ChevronsUpDown} size="sm" /> : <Icon of={ChevronsDownUp} size="sm" />}
+          </button>
+        ) : null}
+        {canFind ? (
+          <button
+            ref={findButton}
+            type="button"
+            aria-label="Find a feed"
+            aria-expanded={findOpen}
+            onClick={() => {
+              if (findOpen) setQuery("");
+              setFindOpen(!findOpen);
+            }}
+            className="hit-row inline-flex shrink-0 items-center justify-center rounded-lg text-fg2 hover:bg-selection"
+          >
+            <Icon of={Search} size="sm" />
+          </button>
+        ) : null}
+      </div>
+      {canFind && findOpen ? (
+        <FeedFilter
+          autoFocus
+          className="px-3 pb-1"
+          value={query}
+          onChange={setQuery}
+          shown={match?.size ?? lib.feeds.length}
+          total={lib.feeds.length}
+          onEmptyEscape={() => {
+            setFindOpen(false);
+            findButton.current?.focus();
+          }}
+        />
+      ) : null}
       <ul
         ref={allRef}
         role="tree"
@@ -407,6 +482,7 @@ export function FeedTree({ onNavigate }: { onNavigate?: () => void }) {
           <FolderItem key={id} fo={tree.byId.get(id) as Folder} level={1} ctx={allCtx} />
         ))}
       </ul>
+      {match && top.length === 0 ? <p className="px-3 py-2 text-sm text-fg2">No feeds match.</p> : null}
       <RevealMore reveal={reveal} noun="feeds" />
     </>
   );

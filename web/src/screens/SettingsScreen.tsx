@@ -390,7 +390,7 @@ function AppearancePage() {
         />
         <Segmented<UnreadBadge>
           legend="Unread badge"
-          hint="Counts stop at 99+."
+          hint="Rows show the number, with thousands as 1.2k. The tab bar stops at 99+."
           value={dp.unreadBadge}
           onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
           options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
