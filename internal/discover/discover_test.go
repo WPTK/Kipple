@@ -117,12 +117,13 @@ func TestOneByteOverLimitIsTooLarge(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooLarge, "the label does not matter")
 }
 
-// A feed that is within the response limit but converts to far more than it is reported as too large, not as no feed.
-func TestFeedThatConvertsToFarMoreIsTooLarge(t *testing.T) {
-	head, tail := `<?xml version="1.0" encoding="windows-1252"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
-	body := head + strings.Repeat("\x80", maxBody-len(head)-len(tail)) + tail // each byte becomes three
-	_, err := find(t, "application/rss+xml", body)
-	require.ErrorIs(t, err, ErrTooLarge)
+// A single-byte charset converts to up to three times its size: a feed at the response limit that does is still a feed.
+func TestLegacyCharsetFeedAtTheLimitIsAccepted(t *testing.T) {
+	head, tail := `<?xml version="1.0" encoding="windows-874"?><rss version="2.0"><channel><title>`, `</title></channel></rss>`
+	body := head + strings.Repeat("\xa1", maxBody-len(head)-len(tail)) + tail // each byte becomes three
+	res, err := find(t, "application/rss+xml", body)
+	require.NoError(t, err)
+	require.True(t, res.IsFeed)
 }
 
 func TestRetriesOnceWithTheRetryUserAgent(t *testing.T) {
