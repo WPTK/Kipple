@@ -1131,7 +1131,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     },
     [srcRef, hiddenRef, act, hide, unhide, scope.view, markScope, unreadView],
   );
-  const digestView = useMemo(() => (src.digest ? { ...src.digest, markSection } : undefined), [src.digest, markSection]);
+  const digestView = useMemo(() => (src.digest ? { ...src.digest, markSection: mutedView ? undefined : markSection } : undefined), [src.digest, markSection, mutedView]);
 
   const menuActions: RowMenuActions = useMemo(
     () => ({

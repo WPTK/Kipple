@@ -852,6 +852,24 @@ describe("Digest on a touch screen and its headings", () => {
     await waitFor(() => expect(container.querySelector('[data-item-id="2000"]')).not.toHaveAttribute("data-read"));
   });
 
+  it("Mark section read is disabled when nothing is left unread, and a click then sends nothing", async () => {
+    const { calls } = routes({ boot: library([2]), counts: [2], extra: { "POST /api/items/mark-read": (_u, init) => json({ changed: JSON.parse(String(init?.body)).ids ?? ["1000", "1001"], restored: [] }) } });
+    const client = makeQueryClient({ retry: false });
+    window.history.replaceState({ idx: 0 }, "", "/l/unread");
+    const { container } = render(<App client={client} />);
+    const user = userEvent.setup();
+    await screen.findByText("Alpha story 1");
+    const posts = () => calls.filter((c) => c.method === "POST" && c.url.pathname === "/api/items/mark-read").length;
+    await user.click(screen.getByRole("button", { name: "Mark section read: Alpha" }));
+    await waitFor(() => expect(container.querySelector('[data-item-id="1000"]')).toHaveAttribute("data-read"));
+    act(() => applyCounts(client, { unread_total: 0, feeds: { "20": 0 } }));
+    const button = await screen.findByRole("button", { name: "Mark section read: Alpha" });
+    await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
+    const before = posts();
+    await user.click(button);
+    expect(posts()).toBe(before);
+  });
+
   it("draws a Star in every row on a finger-only device, and none where there is a mouse", async () => {
     routes({ boot: library([3]), counts: [3] });
     const first = go("/l/unread");

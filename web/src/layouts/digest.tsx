@@ -146,9 +146,11 @@ function DigestSection({ section: s, rows, images, counts, named, scope, onOpen,
   const { unreadBadge } = useDevicePrefs();
   // The heading's count is the unread articles the feeds say the section holds; the New page's heading says "N new" instead.
   const unread = counts ? null : s.unread;
-  const name = unread === null ? s.title : unreadName(s.title, unread, unreadBadge);
-  // Marking is offered once the section's articles are in; it stays (aria-disabled) when nothing is left, so focus is never dropped.
-  const canMark = s.cards.some((c) => !c.read) || (unread ?? 0) > 0;
+  const name = unread !== null ? unreadName(s.title, unread, unreadBadge) : counts && s.total ? `${s.title}, ${s.total} new` : s.title;
+  // Marking is offered once the section's articles are in; it stays (aria-disabled) when the count says nothing is left,
+  // so focus is never dropped. Without a count (an All list, the New page) it is always open: the section may hold unread
+  // articles that are not loaded.
+  const canMark = unread === null || unread > 0 || s.cards.some((c) => !c.read);
   // Pressing "N more" or Retry takes its button away (or moves it): focus goes to the first article the press brought in.
   // The press is forgotten once its request has settled without bringing any (a failed Retry), or after a while, so a
   // later refetch never takes focus from where the reader has gone.
@@ -177,8 +179,8 @@ function DigestSection({ section: s, rows, images, counts, named, scope, onOpen,
     // A plain section with no accessible name, so a long page does not add a landmark for each; its h2 is what heading navigation finds.
     <section ref={box} data-section={s.key} className="pt-4">
       <h2
-        // The name says what the badge shows (the badge's own text is hidden from it): "News, 205 unread", or "News" when the Unread badge is off.
-        aria-label={name === s.title ? undefined : name}
+        // An explicit name, so the Mark button inside is not read as part of it: what the badge shows ("News, 205 unread", "News" with the Unread badge off) or "N new".
+        aria-label={name}
         className="flex items-center gap-2 px-4 pb-1 text-sm font-semibold tracking-wide text-accent uppercase"
       >
         <span className="min-w-0 break-words">{s.title}</span>
@@ -195,7 +197,7 @@ function DigestSection({ section: s, rows, images, counts, named, scope, onOpen,
               aria-label={`Mark section read: ${s.title}`}
               aria-disabled={!canMark || undefined}
               title="Mark section read"
-              onClick={() => markSection(s.key)}
+              onClick={() => canMark && markSection(s.key)} // aria-disabled does not stop a click
               className="hit-row inline-flex items-center justify-center rounded-lg text-fg2 normal-case hover:text-fg aria-disabled:opacity-50"
             >
               <Icon of={MarkAllIcon} />
