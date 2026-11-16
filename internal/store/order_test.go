@@ -159,7 +159,9 @@ func TestOrderQueryPlans(t *testing.T) {
 						sel, args, _, _ := markSelectSQL(sc, f, 1_700_000_000_900_000, "", false, false)
 						p := plan(sel, args)
 						require.NotContains(t, p, "SCAN items\n", "%+v %+v oldest=%v above=%v analyze=%v\n%s", sc, f, oldest, above, analyze, p)
-						require.Contains(t, p, "SEARCH items USING INDEX "+want.index+" (", "%+v %+v\n%s", sc, f, p)
+						// idx_items_unread_sort holds the mark's whole select list (id, feed_id) and its
+						// tests, so that scan reads the index alone.
+						require.Regexp(t, "SEARCH items USING (COVERING )?INDEX "+want.index+" \\(", p, "%+v %+v\n%s", sc, f, p)
 					}
 				}
 			}
