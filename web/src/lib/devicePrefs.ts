@@ -123,6 +123,8 @@ export interface DevicePrefs {
   listImages: boolean;
   /** The first-run swipe peek has played (or been dismissed) on this device. */
   peekSeen: boolean;
+  /** The one-time "Press and hold a story for more actions." caption has been shown on this device (a page layout on a touch screen). */
+  pageTipSeen: boolean;
   /** Width of the article column in the reader pane and the full-screen article. */
   articleWidth: ArticleWidth;
   /** Width in px of the list column beside the reader pane; null follows the layout's own width. */
@@ -158,6 +160,7 @@ export const DEFAULT_DEVICE_PREFS: DevicePrefs = {
   searchOrder: "rank",
   listImages: true,
   peekSeen: false,
+  pageTipSeen: false,
   articleWidth: "medium",
   listWidth: null,
   sidebarWidth: 240,
@@ -260,6 +263,7 @@ export function parseDevicePrefs(raw: string | null): DevicePrefs {
       searchOrder: isSearchOrder(v?.searchOrder) ? v.searchOrder : d.searchOrder,
       listImages: hidPictures(v) ? false : d.listImages,
       peekSeen: v?.peekSeen === true,
+      pageTipSeen: v?.pageTipSeen === true,
       articleWidth: ARTICLE_WIDTHS.includes(v?.articleWidth as ArticleWidth) ? (v?.articleWidth as ArticleWidth) : d.articleWidth,
       listWidth: typeof v?.listWidth === "number" && Number.isFinite(v.listWidth) ? clampNum(v.listWidth, LIST_WIDTH_MIN, LIST_WIDTH_MAX) : null,
       sidebarWidth:

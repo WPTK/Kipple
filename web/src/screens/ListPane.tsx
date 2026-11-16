@@ -58,7 +58,7 @@ import { useDigestSource } from "./digestSource";
 import { firstLook, keepStill, keptStory, lookAgain, measurePage, readerScrolling, SCROLLING_MS, storyInView, type PageLook, type ReaderInput } from "./pageSeen";
 import { Icon } from "@/ui/Icon";
 import { TOUCH_QUERY } from "@/ui/menu";
-import { mediaMatches } from "@/lib/useMedia";
+import { mediaMatches, useFingerOnly } from "@/lib/useMedia";
 
 /** After a failed mark-read-on-scroll, scrolling sends nothing for this long. */
 export const SCROLL_RETRY_MS = 30_000;
@@ -103,6 +103,9 @@ const OVERSCAN = 8;
 const PLACE_SEARCH_MAX = 1000;
 /** The same for the Digest, which loads up to a page of every section it asks for: about ten sections. */
 const PLACE_SEARCH_DIGEST_MAX = 200;
+
+/** How long the one-time "Press and hold" caption of a page layout stays up. */
+const PAGE_TIP_MS = 6000;
 
 /** How long a row marked read on purpose stays in the Unread list (the undo toast lasts far longer). */
 const LEAVE_MS = 1500;
@@ -1109,6 +1112,27 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     void act.markAllIn(requests, restore, unhide);
   }, [act, hide, unhide, items, scope, markScope, unreadView, srcRef]);
 
+  /**
+   * A Digest heading's Mark section read: every unread article of that one section, up to the section's own bound (the
+   * same request Mark all sends for it), as one undo group like Mark above and below.
+   */
+  const markSection = useCallback(
+    (key: string) => {
+      if (scope.view === "muted") return;
+      const first = srcRef.current.digest?.sections.find((s) => s.key === key)?.cards[0];
+      // A section that is not loaded has no bound: marking would take in articles the reader has not seen.
+      if (!first) return announce("Nothing to mark yet, this section has not loaded");
+      const reach = srcRef.current.rangeOf(first);
+      if ("why" in reach) return announce(reach.why);
+      const gone = hiddenRef.current;
+      const local = reach.cards.filter((i) => !i.read && !gone.has(i.id)).map((i) => i.id);
+      const restore = unreadView && local.length ? hide(local) : undefined;
+      void act.markAllIn([{ scope: reach.scope ?? markScope, maxId: reach.asOf ?? asOf.current, local }], restore, unhide);
+    },
+    [srcRef, hiddenRef, act, hide, unhide, scope.view, markScope, unreadView],
+  );
+  const digestView = useMemo(() => (src.digest ? { ...src.digest, markSection: mutedView ? undefined : markSection } : undefined), [src.digest, markSection, mutedView]);
+
   const menuActions: RowMenuActions = useMemo(
     () => ({
       toggleRead: (item) => void act.toggleRead(item, "key"),
@@ -1185,6 +1209,23 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     setPeekOn(false);
     updateDevicePrefs({ peekSeen: true });
   }, []);
+
+  // A page layout has no swipe, so on a finger-only device its stories show a Star and the long press is taught once, by a
+  // caption over the foot of the list (it takes no room, so nothing moves). Shown the first time such a page has stories,
+  // then remembered at once, so it never comes back on its own (Settings, Appearance, Show swipe tips again, re-arms it).
+  const fingerOnly = useFingerOnly();
+  const [pageTip, setPageTip] = useState(false);
+  const hasStories = !!firstItemId;
+  useEffect(() => {
+    if (dp.pageTipSeen || pageTip || !Page || !hasStories || !fingerOnly) return;
+    setPageTip(true);
+    updateDevicePrefs({ pageTipSeen: true });
+  }, [dp.pageTipSeen, pageTip, Page, hasStories, fingerOnly]);
+  useEffect(() => {
+    if (!pageTip) return;
+    const h = setTimeout(() => setPageTip(false), PAGE_TIP_MS);
+    return () => clearTimeout(h);
+  }, [pageTip]);
 
   // ---- render ------------------------------------------------------------
 
@@ -1475,7 +1516,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
       return (
         <>
           <div data-page-box="" className={listColumn(layout)}>
-            <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} digest={src.digest} />
+            <Page items={src.cards} scope={scope} more={src.more} width={width} selectedId={selected} tabStopId={shown(focusId, src.cards)} onOpen={openItem} actions={menuActions} digest={digestView} />
           </div>
           <div ref={endRef} aria-hidden="true" className="h-px" />
           {src.loadingMore ? (
@@ -1629,6 +1670,14 @@ return failureNoteFeeds({ scope: noteScope, pendingOf, feeds, folders, loaded, e
         </div>
       ) : null}
       <div className="relative min-h-0 flex-1">
+        {pageTip ? (
+          <div role="status" data-testid="page-tip" className="absolute inset-x-3 bottom-3 z-20 flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-fg shadow-sm">
+            <span className="flex-1">Press and hold a story for more actions.</span>
+            <button type="button" aria-label="Dismiss tip" className="hit inline-flex items-center justify-center rounded-md" onClick={() => setPageTip(false)}>
+              <Icon of={X} />
+            </button>
+          </div>
+        ) : null}
         <NewArticlesPill count={pendingNew} onClick={loadNew} />
         <div
           aria-hidden={!showPull}

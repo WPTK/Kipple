@@ -195,6 +195,7 @@ var clientDefs = map[string]clientDef{
 	"client.search_order":       {oneOf("relevance", "newest", "oldest"), "relevance"},
 	"client.list_images":        {boolVal, true}, // pictures in lists: Inbox thumbnails and the Digest's images
 	"client.peek_seen":          {boolVal, false},
+	"client.page_tip_seen":      {boolVal, false},
 	"client.article_width":      {oneOf("narrow", "medium", "wide", "full"), "medium"},
 	"client.list_width":         {boundedInt(260, 720), nil},
 	"client.sidebar_width":      {boundedInt(200, 420), 240},

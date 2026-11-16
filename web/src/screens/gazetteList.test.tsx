@@ -14,7 +14,7 @@ import { resetUndo } from "@/lib/undo";
 import { clearToasts } from "@/shell/toasts";
 import { themeStore } from "@/theme/theme";
 import { bootstrap, card, json, mockFetch, pageOf } from "@/test/mockApi";
-import { wide } from "@/test/media";
+import { fingerOnly, wide } from "@/test/media";
 import { rememberListTop } from "@/lib/listPlace";
 import { clearListMemory, resetScrollReadForTests } from "./ListPane";
 
@@ -739,5 +739,24 @@ describe("the paper's name setting", () => {
     fireEvent.change(field, { target: { value: "Morning Notes" } });
     expect(field).not.toHaveAttribute("aria-invalid");
     expect(devicePrefsStore.get().paperName).toBe("Morning Notes");
+  });
+});
+
+describe("the Gazette on a touch screen", () => {
+  it("draws a Star on every story where the only pointer is a finger, and none where there is a mouse", async () => {
+    routes();
+    const first = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    expect(screen.queryByRole("button", { name: /^Star:/ })).toBeNull();
+    first.unmount();
+    fingerOnly();
+    const { container } = go("/l/unread");
+    await screen.findByRole("heading", { name: DEFAULT_PAPER_NAME });
+    const stories = container.querySelectorAll("article[data-item-id]");
+    expect(stories.length).toBeGreaterThan(0);
+    for (const story of stories) {
+      const star = within(story as HTMLElement).getByRole("button", { name: /^Star: / });
+      expect(star).toHaveClass("hit-row");
+    }
   });
 });

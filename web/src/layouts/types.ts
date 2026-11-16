@@ -71,6 +71,8 @@ export interface DigestView {
   expand: (key: string) => void;
   /** Ask again for a section whose load failed. */
   retry: (key: string) => void;
+  /** Mark every unread article of one section as read, with the Undo toast. Without it the headings offer no such action. */
+  markSection?: (key: string) => void;
 }
 
 /** What a page layout is given: the whole loaded list, not one row. */

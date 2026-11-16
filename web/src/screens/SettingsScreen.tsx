@@ -396,7 +396,7 @@ function AppearancePage() {
           options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
         />
         <PaperNameField />
-        <Button onClick={() => updateDevicePrefs({ peekSeen: false })} className="self-start">
+        <Button onClick={() => updateDevicePrefs({ peekSeen: false, pageTipSeen: false })} className="self-start">
           Show swipe tips again
         </Button>
         <Link to="/feeds" className="inline-flex min-h-11 items-center self-start text-sm text-link underline underline-offset-2">
