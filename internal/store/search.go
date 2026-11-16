@@ -274,6 +274,9 @@ func (d *DB) searchCardsRun(ctx context.Context, q CardQuery, limit int) ([]Card
 	lastRank := 0.0
 	for i, id := range ids {
 		if c, ok := byID[id]; ok { // a row trimmed between the passes just drops out
+			if q.Rank {
+				c.Rank = ranks[i]
+			}
 			cards = append(cards, c)
 			lastRank = ranks[i]
 		}

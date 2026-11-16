@@ -98,3 +98,44 @@ func TestIncludeContentContinuationSurvivesAnItemLeavingTheList(t *testing.T) {
 	require.True(t, fired)
 	require.Equal(t, ids, got)
 }
+
+// A relevance-ordered content page that is cut at the byte bound continues from the rank of the last card it
+// consumed, taken from the list query that built the page. An article that matches no more by the time the
+// page's content is read (here, one deleted) does not move the continuation, so nothing after it is skipped.
+func TestIncludeContentRankContinuationSurvivesAnItemLeaving(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	big := strings.Repeat("x", 3<<20)
+	var ids []string
+	for i := range 5 {
+		ids = append(ids, sid(h.addItem(f, seedItem{Title: fmt.Sprintf("needle %d", i), Text: big, SortAt: int64(1000 - i)})))
+	}
+	fired := false
+	clock := h.srv.now
+	// This relies on listItems calling s.now between its list query and its content reads.
+	h.srv.now = func() time.Time {
+		if pc, _, _, ok := runtime.Caller(1); ok && !fired && strings.Contains(runtime.FuncForPC(pc).Name(), "listItems") {
+			fired = true
+			h.exec("DELETE FROM items WHERE id = ?", ids[1])
+		}
+		return clock()
+	}
+	var got []string
+	path := "/api/items?include=content&order=rank&q=needle"
+	for {
+		code, body, _ := h.api(c, "GET", path, "")
+		require.Equal(t, 200, code)
+		for _, it := range body["items"].([]any) {
+			got = append(got, it.(map[string]any)["id"].(string))
+		}
+		next, _ := body["next_cursor"].(string)
+		if next == "" {
+			break
+		}
+		path = "/api/items?include=content&order=rank&q=needle&cursor=" + next
+	}
+	require.True(t, fired)
+	require.Equal(t, []string{ids[0], ids[2], ids[3], ids[4]}, got)
+}
