@@ -38,6 +38,10 @@ updates:
       # breaks `npm run lint`. Revisit once that lands.
       - dependency-name: "typescript"
         versions: [">=7"]
+      # Playwright 1.65 makes click wait for the element to stop being inert; the Firefox row-name flow
+      # times out on it. Hold at 1.64 until that flow is checked against 1.65.
+      - dependency-name: "@playwright/test"
+        versions: [">=1.65.0"]
     commit-message:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
