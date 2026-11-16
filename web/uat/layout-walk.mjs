@@ -189,7 +189,7 @@ await t.eachViewport(async (page, vp) => {
    * Large targets and text size wanted, `inset` the right safe-area inset in px, or null), failing loudly with what it saw
    * if it never is, and then polls the condition under test, to a cap, and checks what it ended with.
    * With `degrade` the window cannot hold the columns at their floors, so no fit is asked: the toolbar must still show
-   * every control and reach each of them by scrolling. Returns the geometry and the toolbar.
+   * every control, wrapped onto more rows, and not scroll sideways. Returns the geometry and the toolbar.
    */
   const beside = async (where, w, h, { header = true, targets = "normal", text = 1, inset = null, degrade = false } = {}) => {
     await at(w, h, "/l/all");
@@ -237,11 +237,11 @@ await t.eachViewport(async (page, vp) => {
       const holds = async () => {
         g = await geometry();
         r = await reach();
-        return g.count === ctl.count && g.scrollable && g.toolbarRight <= g.vw && r.lastRight <= r.toolbarRight;
+        return g.count === ctl.count && !g.scrollable && g.toolbarRight <= g.vw && r.lastRight <= r.toolbarRight;
       };
       await until(async () => (await holds()) && (!header || headerFits(g)), 3000);
       const state = `root ${g.rem} px, Large targets ${g.targets === "large" ? "on" : "off"}`;
-      check(await holds(), `${where} degrades`, `the window is too narrow for the columns at their floors (${state}), and the toolbar still has all ${g.count} controls, inside the screen, the last one reached by scrolling`, `${g.count} of ${ctl.count} controls, scrollable ${g.scrollable}, the toolbar ends at ${g.toolbarRight} of ${g.vw}, the last control ends at ${r.lastRight} of ${r.toolbarRight} once scrolled (${state})`);
+      check(await holds(), `${where} degrades`, `the window is too narrow for the columns at their floors (${state}), and the toolbar still has all ${g.count} controls, inside the screen, wrapped onto more rows instead of scrolling sideways`, `${g.count} of ${ctl.count} controls, scrollable ${g.scrollable}, the toolbar ends at ${g.toolbarRight} of ${g.vw}, the last control ends at ${r.lastRight} of ${r.toolbarRight} once scrolled (${state})`);
       if (header) check(headerFits(g), `${where} list header`, `the list header's controls are inside the list column, wrapped if need be (${state})`, `its last control ends at ${g.headerRight}, the list column at ${g.columnRight} (${state})`);
       return { g, bar };
     }

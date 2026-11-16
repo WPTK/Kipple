@@ -130,7 +130,10 @@ export const isSearchable = (fragment) => fragment.trim().length >= MIN_LENGTH;
  */
 export function exactNameUsages(fragment, uatFiles) {
   const word = fragment.trim();
-  return findUsages(word, uatFiles).filter((u) => /exact:\s*true/.test(u.text) && new RegExp(`(["'\`])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\1`).test(u.text));
+  const w = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const byName = new RegExp(`name:\\s*(["'\`])${w}\\1`); // the name property itself, not another string on the line
+  const byAttribute = new RegExp(`\\[aria-label=(["'])${w}\\1\\]`); // an attribute selector needs the whole value
+  return findUsages(word, uatFiles).filter((u) => (/exact:\s*true/.test(u.text) && byName.test(u.text)) || byAttribute.test(u.text));
 }
 const usedAsExactName = (fragment, uatFiles) => exactNameUsages(fragment, uatFiles).length > 0;
 

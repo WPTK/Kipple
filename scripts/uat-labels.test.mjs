@@ -64,6 +64,13 @@ test('check: a shortened-into-longer label is still reported when a locator asks
   assert.equal(check(diff, new Set(['Save as']), [{ name: 'x.mjs', text: 'page.getByRole("button", { name: "Save" })' }]).length, 0);
 });
 
+test('check: an exact name is the name property, and an attribute selector needs the whole old value', () => {
+  const diff = ['diff --git a/web/src/A.tsx b/web/src/A.tsx', '--- a/web/src/A.tsx', '+++ b/web/src/A.tsx', '@@ -1 +1 @@', '-<div aria-label="dialog">', '+<div aria-label="Retention dialog">'].join('\n');
+  const cur = new Set(['Retention dialog']);
+  assert.equal(check(diff, cur, [{ name: 'x.mjs', text: 'page.getByRole("dialog", { name: "Retention dialog", exact: true })' }]).length, 0);
+  assert.equal(check(diff, cur, [{ name: 'x.mjs', text: `page.locator('[aria-label="dialog"]')` }]).length, 1);
+});
+
 test('goneFragments: ignores fragments shorter than three characters once trimmed', () => {
   assert.deepEqual(goneFragments([{ file: 'a.tsx', removed: [', ', 'OK'] }], new Set()), []);
 });

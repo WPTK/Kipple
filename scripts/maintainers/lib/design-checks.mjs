@@ -425,7 +425,8 @@ export function installChecks() {
     const reach = band ? (band[3] ? -parseFloat(band[2]) : parseFloat(band[2])) : 0;
     const off = parseFloat(cs.outlineOffset) || 0;
     const covers = band && parseFloat(band[2]) > 0 && (band[3] ? reach < off && off + ring.width <= 0 : off >= 0 && off + ring.width <= reach);
-    const near = (covers && K.painted(band[1], el, bg)) || bg;
+    // An inset band is painted over the control's own background, an outer one over the parent's.
+    const near = (covers && K.painted(band[1], el, band[3] ? K.bg(el).color : bg)) || bg;
     const r = el.getBoundingClientRect();
     const pts = [
       [r.x + r.width / 2, r.y + r.height / 2],
