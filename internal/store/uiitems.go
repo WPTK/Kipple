@@ -51,6 +51,9 @@ type Card struct {
 	// (the item is then "muted by a deleted filter").
 	MutedBy     *string `json:"muted_by"`
 	MutedByName *string `json:"muted_by_name"`
+	// Rank is the card's bm25 value in a relevance-ordered search (lower is better), 0 elsewhere. It is
+	// never sent: a caller that cuts a page short builds the continuation Cursor from it.
+	Rank float64 `json:"-"`
 }
 
 // setMuted fills the muted fields from the raw columns.

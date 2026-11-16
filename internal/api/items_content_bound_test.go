@@ -98,3 +98,55 @@ func TestIncludeContentContinuationSurvivesAnItemLeavingTheList(t *testing.T) {
 	require.True(t, fired)
 	require.Equal(t, ids, got)
 }
+
+// A relevance-ordered content page that is cut at the byte bound continues from the rank of the last card it
+// consumed, taken from the list query that built the page. An article that matches no more by the time the
+// page's content is read (here, one deleted) does not move the continuation, so nothing after it is skipped.
+func TestIncludeContentRankContinuationSurvivesAnItemLeaving(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	c := h.login()
+	f := h.addFeed("A", 0)
+	big := strings.Repeat("x", 3<<20)
+	var ids []string
+	for i := range 5 {
+		id := h.addItem(f, seedItem{Title: fmt.Sprintf("needle %d", i), Text: big, SortAt: int64(1000 - i)})
+		// The article's HTML stays large (that is what cuts the page); its indexed text is small, so the
+		// search stays well inside its time budget on a loaded machine.
+		h.exec("UPDATE item_content SET content_text = 'body' WHERE item_id = ?", id)
+		ids = append(ids, sid(id))
+	}
+	fired := false
+	clock := h.srv.now
+	// This relies on listItems calling s.now between its list query and its content reads.
+	h.srv.now = func() time.Time {
+		if pc, _, _, ok := runtime.Caller(1); ok && !fired && strings.Contains(runtime.FuncForPC(pc).Name(), "listItems") {
+			fired = true
+			h.exec("DELETE FROM items WHERE id = ?", ids[1])
+		}
+		return clock()
+	}
+	var got []string
+	var pages [][]string
+	path := "/api/items?include=content&order=rank&q=needle"
+	for {
+		code, body, _ := h.api(c, "GET", path, "")
+		require.Equal(t, 200, code)
+		var page []string
+		for _, it := range body["items"].([]any) {
+			page = append(page, it.(map[string]any)["id"].(string))
+		}
+		pages = append(pages, page)
+		got = append(got, page...)
+		next, _ := body["next_cursor"].(string)
+		if next == "" {
+			break
+		}
+		path = "/api/items?include=content&order=rank&q=needle&cursor=" + next
+	}
+	require.True(t, fired)
+	// The first page holds two 3 MiB articles and is cut before the third (8 MiB bound), so the rest of the
+	// list is reached only by following next_cursor.
+	require.Equal(t, [][]string{{ids[0], ids[2]}, {ids[3], ids[4]}}, pages)
+	require.Equal(t, []string{ids[0], ids[2], ids[3], ids[4]}, got)
+}
