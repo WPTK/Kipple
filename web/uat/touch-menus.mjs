@@ -20,7 +20,7 @@
 //   A2  (desktop) beside an open article there is one Reading appearance button, and its panel is a popover.
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
+import { pressRowButton, start, waitForAnimationsDone, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 22);
 const { check, step } = t;
@@ -62,15 +62,7 @@ await t.eachViewport(async (page, vp) => {
     length: page.getByRole("button", { name: LENGTH }),
     row: page.locator("main article[data-item-id]").first().getByRole("button", { name: /^More actions/ }),
   });
-  // On a phone a row's More button is out of sight (the row swipes and long-presses instead), so it is reached the way
-  // a keyboard or screen reader reaches it: focus it and activate it.
-  const press = async (loc, id) => {
-    if (vp.mobile && id === "row") {
-      await loc.focus();
-      await page.keyboard.press("Enter");
-    } else if (vp.mobile) await loc.tap();
-    else await loc.click();
-  };
+  const press = (loc, id) => (id === "row" ? pressRowButton(page, loc) : vp.mobile ? loc.tap() : loc.click());
   // An article opened from the list (by its address, so no tap lands on whatever the list scrolled to).
   const openArticle = async () => {
     await open("/l/unread");

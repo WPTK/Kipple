@@ -14,8 +14,8 @@
 //   W4  the star and More show at rest, at full strength: Compact's star and Inbox's More, an unstarred star unfaded; Tab onto a
 //       Gazette story's More draws it;
 //   W5  the unread list shows its count beside the title, and a short list ends with "End of unread";
-//   W6  Editorial's lead pictures keep one frame (16:9) whatever their shape, fill it when close to it and sit whole in
-//       it when not (a portrait or a panorama), and a row with no picture keeps a minimum height;
+//   W6  Editorial's lead pictures keep one frame (2:1 above the text, 16:9 beside it) whatever their shape, fill it when close to it and sit whole in
+//       it when not (a portrait or a panorama);
 //   W7  search results are text rows with no picture, say how many results there are, and Mark all counts the unread results;
 //       a saved search says Saved and offers Edit;
 //   W8  on a short screen (320x256, 400% zoom) the search results are reachable: the screen scrolls, the box stays at
@@ -284,7 +284,7 @@ await t.eachViewport(async (page, vp) => {
         }),
       );
       check(pics.length > 0, `${tag} W6 loaded`, "pictures loaded", "none did");
-      const frame = pics.every((p) => Math.abs(p.ratio - 16 / 9) < 0.05 || p.ratio < 1.2 /* side by side keeps its own frame */);
+      const frame = pics.every((p) => Math.abs(p.ratio - 2) < 0.05 /* above the text */ || Math.abs(p.ratio - 16 / 9) < 0.05 /* beside it */ || p.ratio < 1.2 /* side by side keeps its own frame */);
       check(frame, `${tag} W6 frame`, "every lead keeps one frame", JSON.stringify(pics.slice(0, 3)));
       const rule = pics.every((p) => (p.kept >= 0.75 ? p.fit === "cover" : p.fit === "contain"));
       check(rule, `${tag} W6 fit`, "a picture fills its frame only when its shape is close to it", JSON.stringify(pics.slice(0, 4)));

@@ -21,7 +21,7 @@
 // It opens one article and toggles its read state (A6), leaving it read. It only runs against a loopback address with the seed's credentials unless
 // --allow-remote is given. Exit code: 0 clean, 1 findings, 2 setup error.
 import { expect } from "@playwright/test";
-import { start, waitForAnimationsDone } from "./common.mjs";
+import { pressRowButton, start, waitForAnimationsDone } from "./common.mjs";
 
 const t = await start(import.meta.url, 16);
 const { check, step } = t;
@@ -161,7 +161,7 @@ await t.eachViewport(async (page, vp) => {
     const canShare = await page.evaluate(() => typeof navigator.share === "function");
     const open = async () => {
       await row.hover();
-      await row.getByRole("button", { name: /^More actions/ }).click();
+      await pressRowButton(page, row.getByRole("button", { name: /^More actions/ }));
       await page.getByRole("menu").waitFor({ timeout: 5000 });
     };
     await open();
