@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import App, { makeQueryClient } from "@/App";
 import { authStore } from "@/api/client";
-import { initialLive, liveStore } from "@/api/events";
+import { initialLive, liveStore, reduceEvent } from "@/api/events";
 import type { Bootstrap, Card, Feed } from "@/api/types";
 import { devicePrefsStore, resetDevicePrefs, updateDevicePrefs } from "@/lib/devicePrefs";
 import { resetUndo, undoLast } from "@/lib/undo";
@@ -731,5 +731,37 @@ describe("mark as read while scrolling in the Digest", () => {
     const body = JSON.parse(String(marks()[0]!.init?.body));
     expect(body.reason).toBe("scroll");
     expect(new Set(body.ids)).toEqual(new Set(order.slice(0, 6)));
+  });
+});
+
+describe("a scheduled poll that brings articles while the Digest is open", () => {
+  it("offers them in the pill without a word aloud, and leaves every card where it is until the pill is pressed", async () => {
+    const say = vi.spyOn(toasts, "announce");
+    const counts = [3, 3];
+    const { calls } = routes({ boot: library(counts), counts });
+    const { container } = go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    const shown = storyIds(container);
+    const before = itemCalls(calls).length;
+    act(() => void liveStore.set((s) => reduceEvent(s, { type: "fetch.done", data: { feed_id: "20", run_ids: [], outcome: "ok", new_items: 1, new_item_ids: ["999999"], trigger: "scheduled" } })));
+    const pill = await screen.findByRole("button", { name: "1 new article" });
+    expect(pill).toHaveAttribute("data-open", "true");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(storyIds(container)).toEqual(shown);
+    expect(itemCalls(calls)).toHaveLength(before);
+    expect(say).not.toHaveBeenCalled();
+    counts[0] = 4;
+    await userEvent.setup().click(pill);
+    await waitFor(() => expect(itemCalls(calls).length).toBeGreaterThan(before));
+    await waitFor(() => expect(pill).toHaveAttribute("data-open", "false"));
+  });
+
+  it("raises no pill for an import's first fetch", async () => {
+    routes({ boot: library([3, 3]), counts: [3, 3] });
+    go("/l/unread");
+    await screen.findByText("Alpha story 1");
+    act(() => void liveStore.set((s) => reduceEvent(s, { type: "fetch.done", data: { feed_id: "20", run_ids: [], outcome: "ok", new_items: 1, new_item_ids: ["999999"], trigger: "import" } })));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
   });
 });

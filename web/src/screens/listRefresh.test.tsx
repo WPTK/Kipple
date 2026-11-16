@@ -248,6 +248,66 @@ describe("a manual refresh that ends while a list is open", () => {
   });
 });
 
+describe("a fetch the reader did not start finishes while a list is open", () => {
+  const fetchDone = (trigger: string, over: Record<string, unknown> = {}) =>
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 1, new_item_ids: ["1009"], trigger, ...over } } as never));
+
+  it.each([["a scheduled poll", "scheduled"], ["a new feed's first fetch", "subscribe"]])(
+    "%s offers the new articles in the pill without a word aloud, and moves nothing, even at the top",
+    async (_, trigger) => {
+      const toasts = await import("@/shell/toasts");
+      const say = vi.spyOn(toasts, "announce");
+      let items = [card(1), card(2), card(3)];
+      const { loads } = open(() => items);
+      await screen.findByText("Article number 1");
+      scrollTo(0);
+      const before = loads();
+      items = [...fresh(), ...items];
+      fetchDone(trigger);
+      const pill = await screen.findByRole("button", { name: "1 new article" });
+      expect(pill).toHaveAttribute("data-open", "true");
+      await settle();
+      expect(say).not.toHaveBeenCalled();
+      expect(loads()).toBe(before);
+      expect(screen.queryByText("Article number 9")).toBeNull();
+      expect(screen.getByText("Article number 1")).toBeInTheDocument();
+      await userEvent.setup().click(pill);
+      await screen.findByText("Article number 9");
+    },
+  );
+
+  it.each([["an import", "import", {}], ["a retention trim", "retention", { outcome: "trim_only", new_items: 0, new_item_ids: [], trimmed_items: 4 }]])(
+    "%s raises no pill",
+    async (_, trigger, over) => {
+      const items = [card(1), card(2), card(3)];
+      open(() => items);
+      await screen.findByText("Article number 1");
+      fetchDone(trigger, over);
+      await settle();
+      expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
+    },
+  );
+
+  it("does not count an article the list already holds", async () => {
+    const items = [card(1), card(2), card(3)];
+    open(() => items);
+    await screen.findByText("Article number 1");
+    fetchDone("scheduled", { new_item_ids: ["1002"] });
+    await settle();
+    expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
+  });
+
+  it("asks for the unread counts again, so the header does not stay behind the pill", async () => {
+    const items = [card(1), card(2), card(3)];
+    const { calls } = open(() => items);
+    await screen.findByText("Article number 1");
+    const boots = () => calls.filter((c) => c.url.pathname === "/api/bootstrap").length;
+    const before = boots();
+    fetchDone("scheduled");
+    await waitFor(() => expect(boots()).toBe(before + 1), { timeout: 3000 });
+  });
+});
+
 describe("an empty list when feeds finish their first fetch", () => {
   const firstFetch = (feed: string) =>
     act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: feed, outcome: "ok", new_items: 5, trigger: "new_feed" } }));
@@ -263,6 +323,17 @@ describe("an empty list when feeds finish their first fetch", () => {
     firstFetch("3");
     await screen.findByText("Article number 1", undefined, { timeout: 3000 });
     expect(loads()).toBe(before + 1);
+  });
+
+  it("offers no pill for articles it has just loaded by itself", async () => {
+    let items: Items = [];
+    open(() => items);
+    await screen.findByText("All caught up");
+    items = [card(1), card(2)];
+    act(() => void handleServerEvent(client, { type: "fetch.done", data: { feed_id: "1", run_ids: [], outcome: "ok", new_items: 2, trigger: "scheduled" } }));
+    await screen.findByText("Article number 1", undefined, { timeout: 3000 });
+    await settle();
+    expect(screen.queryByRole("button", { name: /new article/ })?.getAttribute("data-open")).not.toBe("true");
   });
 
   it("leaves a list that has articles alone when a feed finishes a silent fetch", async () => {

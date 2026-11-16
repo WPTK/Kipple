@@ -1190,12 +1190,14 @@ export function ListPane({ scope, activeId, onControls }: Props) {
 
   // Items the list already holds are not "new" to it, whatever fetched them (a later load, another route).
   const pendingNew = pendingFor(pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? [], { ids: loadedIdSet, pendingIds });
-  const loadNew = () => {
-    // Only what this list showed is now loaded; other feeds' arrivals keep counting for other lists.
+  /** The arrivals this list is about to hold are no longer pending; other feeds' arrivals keep counting for other lists. */
+  const clearPendingHere = () =>
     liveStore.set((s) => {
       const left = clearPending(s.pendingByFeed, scope, boot.data?.feeds ?? [], boot.data?.folders ?? []);
       return { ...s, pendingByFeed: left, pendingIds: Object.fromEntries(Object.entries(s.pendingIds).filter(([k]) => k in left)) };
     });
+  const loadNew = () => {
+    clearPendingHere();
     memory.delete(key);
     sentByScroll.current = memoryFor(key).sentByScroll;
     seenIds.current = memoryFor(key).seenByScroll;
@@ -1266,6 +1268,7 @@ export function ListPane({ scope, activeId, onControls }: Props) {
   const emptyNow = useRef(false);
   emptyNow.current = settledEmpty;
   const startOverRef = useLatestRef(startOver);
+  const clearPendingHereRef = useLatestRef(clearPendingHere);
   useEffect(() => {
     if (!settledEmpty) {
       // Loaded with articles (or still loading): what has arrived so far is not owed a reload.
@@ -1276,10 +1279,12 @@ export function ListPane({ scope, activeId, onControls }: Props) {
     const h = setTimeout(() => {
       if (!emptyNow.current) return;
       liveStore.set((s) => ({ ...s, arrivalsHandled: { ...s.arrivalsHandled, [key]: Math.max(s.arrivalsHandled[key] ?? 0, arrivedHere) } }));
+      // The reload holds what arrived: a pill for it would offer the same articles again.
+      clearPendingHereRef.current();
       void startOverRef.current();
     }, EMPTY_RELOAD_MS);
     return () => clearTimeout(h);
-  }, [arrivedHere, key, settledEmpty, src.pending, src.error, startOverRef]);
+  }, [arrivedHere, key, settledEmpty, src.pending, src.error, startOverRef, clearPendingHereRef]);
   // A refresh that ended while the list was loading is asked about once it has.
   useEffect(() => {
     if (!src.pending) void askArrivals();
