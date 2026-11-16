@@ -97,6 +97,7 @@ export function profileOf(l: LocalState): Profile {
     "client.search_order": SEARCH_ORDER_TO_SERVER[dp.searchOrder],
     "client.list_images": dp.listImages,
     "client.peek_seen": dp.peekSeen,
+    "client.page_tip_seen": dp.pageTipSeen,
     "client.article_width": dp.articleWidth,
     "client.list_width": dp.listWidth,
     "client.sidebar_width": dp.sidebarWidth,
@@ -153,6 +154,7 @@ export function deriveLocal(m: Profile, cur: LocalState): LocalState {
     searchOrder: searchOrderFromServer(g("client.search_order")),
     listImages: g("client.list_images"),
     peekSeen: g("client.peek_seen"),
+    pageTipSeen: g("client.page_tip_seen"),
     articleWidth: g("client.article_width"),
     listWidth: g("client.list_width"),
     sidebarWidth: g("client.sidebar_width"),
@@ -486,7 +488,7 @@ function legacyProfileKeys(): Set<string> {
   // The v1 cache counts when this build has not written its own yet (devicePrefs converts it on load).
   add(read(DEVICE_PREFS_KEY) ?? read(LEGACY_DEVICE_PREFS_KEY), {
     layout: ["client.layout"], overrides: ["client.list_overrides"], order: ["client.order"], group: ["client.group"], searchOrder: ["client.search_order"], listImages: ["client.list_images"],
-    peekSeen: ["client.peek_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
+    peekSeen: ["client.peek_seen"], pageTipSeen: ["client.page_tip_seen"], articleWidth: ["client.article_width"], listWidth: ["client.list_width"],
     sidebarWidth: ["client.sidebar_width"], collapsedFolders: ["client.collapsed_folders"], linkTarget: ["client.link_target"],
     unreadBadge: ["client.unread_badge"], highlightKeywords: ["client.highlight_keywords"],
   }, DEFAULT_DEVICE_PREFS);

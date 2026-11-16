@@ -372,7 +372,7 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
 
 - **One row, two places.** The sidebar tree and the Feeds screen draw a feed or folder row with the same component
   (`web/src/screens/feeds/RowLine.tsx`): icon, name, unread count. A count, the "Unread badge" setting (Count, Dot, Off)
-  and the 99+ cap are therefore the same on both, Favorites included. A feed or folder with nothing unread is dimmed
+  and the abbreviation (1.2k above 999) are therefore the same on both, Favorites included. A feed or folder with nothing unread is dimmed
   (`text-fg2`), so a missing badge is never ambiguous. Starred and Muted keep a plain count that the setting does not hide.
   Rejected: patching the Favorites rows in place, which left two drawings of one row to drift apart again.
 - **A plain visit is the list.** No help sentence under the title; the sentences for Edit and for Select stay, where a
@@ -385,6 +385,13 @@ The Stats summary tiles (previous-period figure) and a feed's Read rate (the cou
 - **Mark all as read** is in each folder's menu (the folder and its subfolders), shown only when the folder has unread
   articles. It asks first, naming the reach ("Mark all 12 as read"), like the list's own menu, and the Undo toast follows.
 - Every More button draws one glyph (`MoreIcon`, `web/src/lib/itemActionTable.ts`), the Feeds screen's included.
+
+## Large libraries (find, collapse all, badge numbers)
+
+- **Find a feed** is offered when there are more than 12 feeds (`FIND_MIN_FEEDS`). Below that the whole list fits a screen and a field is one more thing to skip. On the Feeds screen it is a field at the top; in the sidebar it is a button beside the Feeds label that opens the field, and Escape on an empty field closes it and returns to the button. It keeps feeds whose title or short address holds the text, and every feed under a folder whose name holds it; folders with no match go, the ones with a match stay. It works over what is loaded (no request per keystroke). While there is text, collapsed folders draw open so a match is never hidden, and what is saved is not changed. The count is announced politely in Feed health's words ("Showing 3 of 137 feeds"). Escape clears the text.
+- **Collapse all folders** and **Expand all folders** sit in the Feeds screen's Feed actions menu and as one button beside the sidebar's Feeds label. They write the same per-device list as a single folder's chevron. Neither is offered with one folder or fewer, and the Feeds screen's item is left out while a find is active.
+- **Badge numbers.** A folder or feed badge shows the number, and `1.2k`, `13k`, `1.2m` above 999 (the sidebar's Muted count keeps its 99+), instead of stopping at 99+. The accessible name is always the exact figure ("1,234 unread"). The tab bar keeps its 99+ cap, where the room is a few characters. The header's count is unchanged. Dot only and Off are unchanged and no stored choice is migrated. Rejected: a higher cap (999+), which loses the size of a backlog exactly where it is large.
+- **Feed index.** The per-feed menu is on the block's heading, not on each headline: the headlines have no actions of their own on this page. "Mark feed as read" asks first and has an Undo, as a folder's mark-all does. Rejected: marking a block read with no confirmation, which a 45-screen page makes easy to hit.
 
 ## Item actions (design review 1.5, issue #613)
 
@@ -532,7 +539,7 @@ a Tab stop: the arrow keys, Home and End are the only keyboard way to resize, an
   Digest's "Images". It covers the Inbox thumbnails and the Digest images; Editorial and Cards always show pictures. It
   appears twice, bound to the one value: in Settings, Appearance, Lists, and in the layout menu, as Pictures under Show and sort. Rejected: a
   picture control in each layout's own block, which repeats the problem of a control that exists only under some layouts.
-- **A picture makes a row taller.** In Editorial the picture fills the row's width above the text while the row is narrower than 34rem, which makes such a row clearly taller than one without; from 34rem the picture sits beside the text. In Cards the first row-height estimate is 340 px with a picture against 200 px without, and the cards of one grid row share one height in two or three columns. Which articles have a picture follows the feed, so a feed with pictures takes more of the screen than one without.
+- **A picture makes a row taller.** In Editorial the picture fills the row's width above the text, 2:1, while the row is narrower than 34rem, which makes such a row clearly taller than one without; from 34rem the picture, 16:9, sits beside the text. The star and More are on the source line, and on a touch screen with swipe they are out of view (reachable by keyboard and screen reader). In Cards the first row-height estimate is 330 px with a picture against 150 px without, and the cards of one grid row share one height in two or three columns. Which articles have a picture follows the feed, so a feed with pictures takes more of the screen than one without.
   An old cache or stored profile that hid pictures in either place keeps them hidden (read once; migration 0021 rewrites the
   stored profiles).
 - **"Pictures" means display only.** The server's image proxy group in Settings is "Image cache".

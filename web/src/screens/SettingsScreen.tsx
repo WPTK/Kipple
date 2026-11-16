@@ -390,13 +390,13 @@ function AppearancePage() {
         />
         <Segmented<UnreadBadge>
           legend="Unread badge"
-          hint="Counts stop at 99+."
+          hint="Rows show the number, with thousands as 1.2k. The tab bar stops at 99+."
           value={dp.unreadBadge}
           onChange={(unreadBadge) => updateDevicePrefs({ unreadBadge })}
           options={UNREAD_BADGES.map((b) => ({ value: b, label: b === "count" ? "Count" : b === "dot" ? "Dot only" : "Off" }))}
         />
         <PaperNameField />
-        <Button onClick={() => updateDevicePrefs({ peekSeen: false })} className="self-start">
+        <Button onClick={() => updateDevicePrefs({ peekSeen: false, pageTipSeen: false })} className="self-start">
           Show swipe tips again
         </Button>
         <Link to="/feeds" className="inline-flex min-h-11 items-center self-start text-sm text-link underline underline-offset-2">

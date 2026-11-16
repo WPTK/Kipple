@@ -33,6 +33,19 @@ export const poll = (ms) => new Promise((r) => setTimeout(r, ms));
 const describe = (v) => (typeof v === "string" ? JSON.stringify(v) : (JSON.stringify(v) ?? String(v)));
 
 /**
+ * Presses a row's Star or More button. On a touch screen a row that swipes keeps both buttons out of sight and out of
+ * reach of a finger (swipe and long-press do the job), but still named and focusable; so a button that takes no pointer
+ * is focused and pressed with Enter, the way a keyboard or a screen reader reaches it, and any other is clicked.
+ */
+export async function pressRowButton(page, button) {
+  const b = button.first();
+  if (await b.evaluate((e) => getComputedStyle(e).pointerEvents === "none")) {
+    await b.focus();
+    await page.keyboard.press("Enter");
+  } else await b.click();
+}
+
+/**
  * Waits until the element (a Locator or a selector) is the page's active element, for at most `ms` in total; throws
  * saying what was waited for and what had focus. The element is looked up again on every poll, so a React remount
  * that replaces it does not leave the wait holding a detached node.

@@ -19,20 +19,25 @@ describe("row skeletons hold the room of the rows that replace them", () => {
 
   it("Editorial: the row's own padding and picture box, then bars for the source, title and excerpt lines cut to the density", () => {
     const row = draw(magazine);
-    expect(classes(row)).toContain("py-[calc(var(--row-py)+0.5rem)]");
-    expect(classes(row.querySelector(".aspect-video"))).toContain("w-full");
-    // Title and excerpt bars are as many lines as the density shows, at most two; the buttons' height is kept below the text.
+    const frame = row.firstElementChild;
+    expect(classes(frame)).toContain("py-[var(--row-py)]");
+    expect(classes(frame)).toContain("@[34rem]:py-[calc(var(--row-py)+0.5rem)]");
+    // The picture is 2:1 across the row and 16:9 beside the text, as the row's own is.
+    const picture = row.querySelector(".aspect-\\[2\\/1\\]");
+    expect(classes(picture)).toContain("w-full");
+    expect(classes(picture)).toContain("@[34rem]:aspect-video");
+    // Title and excerpt bars are as many lines as the density shows, at most two. The star and More sit on the source line, so nothing follows the text.
     expect(row.querySelector('[style*="--title-lines"]')).not.toBeNull();
     expect(row.querySelector('[style*="--snippet-lines"]')).not.toBeNull();
-    expect(classes(row.lastElementChild)).toContain("h-11");
+    expect(row.children).toHaveLength(1);
   });
 
-  it("Cards: the card shell, the picture's frame, bars for the text lines and the footer's height", () => {
+  it("Cards: the card shell, the picture's frame (2:1 on a phone, 16:9 in a grid) and bars for the text lines", () => {
     const row = draw(cards);
     expect(classes(row)).toContain("rounded-2xl");
-    expect(row.querySelector(".aspect-video")).not.toBeNull();
+    expect(classes(row.querySelector(".aspect-video"))).toContain("max-sm:aspect-[2/1]");
     expect(row.querySelector('[style*="--title-lines"]')).not.toBeNull();
-    expect(classes(row.lastElementChild)).toContain("h-12");
+    expect(row.children).toHaveLength(2);
   });
 
   it("Inbox and search results: two title lines, a source line and the snippet", () => {

@@ -14,7 +14,7 @@
 //   M1  at 874x402 the opened row More menu (a bottom sheet on touch, #423) lies inside the screen (#431).
 // It only runs against a loopback address with the seed's credentials unless --allow-remote is given.
 // Exit code: 0 clean, 1 findings, 2 setup error.
-import { start, waitForAnimationsDone, waitForPageStill, waitForStillFor } from "./common.mjs";
+import { pressRowButton, start, waitForAnimationsDone, waitForPageStill, waitForStillFor } from "./common.mjs";
 
 const t = await start(import.meta.url, 15);
 const { check, step } = t;
@@ -102,7 +102,7 @@ await t.eachViewport(async (page, vp) => {
     await open("/l/all");
     const row = page.locator("main article[data-item-id]").first();
     await row.waitFor({ timeout: 15000 });
-    await row.getByRole("button", { name: "More actions" }).click();
+    await pressRowButton(page, row.getByRole("button", { name: "More actions" }));
     const menu = page.getByRole("menu");
     await menu.waitFor({ timeout: 5000 });
     await waitForAnimationsDone(page); // the menu opens with a transition

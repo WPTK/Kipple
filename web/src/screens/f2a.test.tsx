@@ -129,7 +129,7 @@ describe("layouts", () => {
       expect(r.querySelector('img[src="/img/x.jpg"]')).not.toBeNull();
     },
     cards: (r) => {
-      expect(r.querySelector("img.aspect-video")).not.toBeNull(); // 16:9 lead image
+      expect(r.querySelector('img[class~="aspect-[2/1]"]')).not.toBeNull(); // 2:1 lead image: one column at 375
       expect(within(r).getByText("Excerpt for article 1")).toBeInTheDocument();
       expect(r.querySelector("[data-swipe-row]")).not.toBeNull(); // one column at 375: swipe stays on
     },
