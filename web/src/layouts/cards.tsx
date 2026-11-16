@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { Bone } from "@/ui/kit";
+import { BoneLines } from "@/ui/kit";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, titleTone } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
@@ -53,16 +53,19 @@ function CardRow({ item, feed, selected, to, onOpen, onToggleStar, actions }: Ro
   );
 }
 
-/** Loading stand-in for a card: the shell, the picture, source, title and excerpt lines. */
+/** Loading stand-in for a card with a picture: the shell, the picture's frame, bars as tall as the source, title and excerpt lines, and the footer's buttons. */
 function CardSkeleton() {
   return (
-    <div aria-hidden="true" className="flex flex-col gap-2 overflow-hidden rounded-2xl border border-line bg-surface p-2 pb-4">
-      <div className="aspect-video w-full animate-pulse rounded-lg bg-bg" />
-      <div className="flex flex-col gap-2 px-1 pt-1">
-        <Bone className="h-3 w-1/3 bg-bg" />
-        <Bone className="h-4 w-11/12 bg-bg" />
-        <Bone className="h-3 w-3/4 bg-bg" />
+    <div aria-hidden="true" className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface">
+      <div className="p-2 pb-0">
+        <div className="aspect-video w-full animate-pulse rounded-lg bg-bg" />
       </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
+        <BoneLines lines={1} className="text-xs" boneClassName="bg-bg" />
+        <BoneLines lines={2} max="--title-lines" className="text-base leading-snug" boneClassName="bg-bg" />
+        <BoneLines lines={3} max="--snippet-lines" className="text-sm leading-snug" boneClassName="bg-bg" />
+      </div>
+      <div className="h-12" />
     </div>
   );
 }

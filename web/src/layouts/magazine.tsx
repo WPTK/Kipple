@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import { cn } from "@/lib/cn";
-import { Bone } from "@/ui/kit";
+import { Bone, BoneLines } from "@/ui/kit";
 import { ListImage, useImageFailure, RowMenu, SourceTimeMeta, StarButton, UnreadDot, rowLinkProps, rowState, titleTone } from "./parts";
 import type { RowLayout, RowProps } from "./types";
 import { Hl } from "@/lib/useHighlights";
@@ -74,14 +74,22 @@ export function editorialRowHeight(hasImage: boolean, width: number, rem = 16): 
   return Math.round((inner * 9) / 16 + 207);
 }
 
-/** Loading stand-in for an Editorial row: the picture across the top, then source, title and two lines. */
+/**
+ * Loading stand-in for an Editorial row with a picture: the row's own frame and spacing, the picture's box, then bars as
+ * tall as its source line, two title lines, two excerpt lines (cut to the density's) and the row's buttons.
+ */
 function EditorialSkeleton() {
   return (
-    <div aria-hidden="true" className="flex flex-col gap-3 border-b border-line px-4 py-4">
-      <Bone className="aspect-video w-full rounded-lg" />
-      <Bone className="h-3 w-1/3" />
-      <Bone className="h-5 w-11/12" />
-      <Bone className="h-4 w-3/4" />
+    <div aria-hidden="true" className="@container flex flex-col gap-3 border-b border-line px-4 py-[calc(var(--row-py)+0.5rem)]">
+      <div className="flex flex-col gap-3 @[34rem]:flex-row @[34rem]:gap-5">
+        <Bone className="aspect-video w-full rounded-xl @[34rem]:w-2/5 @[34rem]:self-start" />
+        <div className="flex min-w-0 flex-1 flex-col gap-[calc(var(--row-gap)*2)]">
+          <BoneLines lines={1} className="text-xs" />
+          <BoneLines lines={2} max="--title-lines" className="text-xl leading-tight" />
+          <BoneLines lines={2} max="--snippet-lines" className="text-base leading-normal" />
+        </div>
+      </div>
+      <div className="-mb-2 h-11" />
     </div>
   );
 }

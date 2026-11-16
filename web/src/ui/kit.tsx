@@ -679,6 +679,24 @@ export function Bone({ className }: { className?: string }) {
 }
 
 /**
+ * Lines of text as bars. Each line is a whole line high (`1lh`, the line height of the type the class names set), so a
+ * placeholder for a title or an excerpt takes the room the text will, at every text size and list density. `max` is the
+ * name of a CSS variable holding the most lines the real text shows (`--title-lines`, `--snippet-lines`): the bars are cut
+ * to it, down to nothing where the density shows no excerpt. The last line is shorter.
+ */
+export function BoneLines({ lines = 2, max, className, boneClassName }: { lines?: number; max?: string; className?: string; boneClassName?: string }) {
+  return (
+    <div aria-hidden="true" className={cn("overflow-hidden", className)} style={max ? { maxHeight: `calc(var(${max}) * 1lh)` } : undefined}>
+      {Array.from({ length: lines }, (_, i) => (
+        <div key={i} className="flex h-[1lh] items-center">
+          <Bone className={cn("h-[0.62lh]", i === lines - 1 && lines > 1 ? "w-2/3" : "w-full", boneClassName)} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Placeholder for content on its way. Without `row`, `rows` plain bars; with `row`, `rows` copies of that shape, so a
  * list holds the place its real rows will take and nothing moves when they arrive. One live "Loading" for assistive tech.
  */

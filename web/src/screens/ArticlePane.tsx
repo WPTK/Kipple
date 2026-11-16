@@ -18,7 +18,7 @@ import { articleTo, listTo, openListTo } from "@/lib/routes";
 import { sanitizeArticleHtml } from "@/lib/safeHtml";
 import { resolveLinkTarget } from "@/lib/links";
 import { safeHttpUrl } from "@/lib/safeUrl";
-import { ARTICLE_WIDTH_REM, useDevicePrefs } from "@/lib/devicePrefs";
+import { useDevicePrefs } from "@/lib/devicePrefs";
 import { fullDate } from "@/lib/format";
 import { useLatestRef } from "@/lib/useLatestRef";
 import { Button } from "@/ui/button";
@@ -31,18 +31,12 @@ import { cn } from "@/lib/cn";
 import { announce, toast } from "@/shell/toasts";
 import { EmptyState } from "@/ui/EmptyState";
 import { NotFoundBlock } from "@/ui/NotFoundBlock";
-import { ListImage, useImageFailure } from "@/layouts/parts";
 import { endCopy, focusListRow, rememberListPlace } from "./ListPane";
-import type { Card, Scope } from "@/api/types";
+import type { Scope } from "@/api/types";
 import { ReadingMenu } from "./AppearanceControls";
 import { ListenBar } from "./ListenBar";
+import { ARTICLE_FRAME, ARTICLE_HEADER, ARTICLE_TITLE, ArticleSkeleton, columnWidth } from "./ArticleSkeleton";
 import { DropdownMenu } from "@/ui/menu";
-
-/** The article column's max width for the "Article width" setting; Medium is undefined: the stylesheet gives it the density's own measure (.kp-article). */
-function columnWidth(w: keyof typeof ARTICLE_WIDTH_REM): string | undefined {
-  const rem = ARTICLE_WIDTH_REM[w];
-  return w === "medium" ? undefined : rem === null ? "100%" : `${rem}rem`;
-}
 
 interface Props {
   id: string;
@@ -224,7 +218,9 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       : item.isError || !item.data
         ? gone
           ? "This article is no longer available"
-          : "Couldn't open this article"
+          : !browserOnline
+            ? "You're offline"
+            : "Couldn't open this article"
         : item.data.title || "Untitled",
   );
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -357,6 +353,27 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
           <div className="flex min-h-0 flex-1 items-center justify-center">
             {gone ? (
               <NotFoundBlock noun="article" why="It may have been removed by a feed's retention limit or deleted." action={pane ? null : <Button onClick={back}>Back to the list</Button>} />
+            ) : !browserOnline ? (
+              // With no connection the article is simply not on this device: say so, and lead with the way out. Beside the
+              // list (`pane`) there is no Back to offer, the list is already there, so Try again leads.
+              <EmptyState
+                role="alert"
+                asH1
+                title="You're offline"
+                why="This article isn't saved on this device. Go back, or try again when you're connected."
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {pane ? null : (
+                      <Button variant="solid" onClick={back}>
+                        Go back
+                      </Button>
+                    )}
+                    <Button variant={pane ? "solid" : "outline"} onClick={() => void item.refetch()}>
+                      Try again
+                    </Button>
+                  </div>
+                }
+              />
             ) : (
               <EmptyState
                 role="alert"
@@ -373,21 +390,10 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
             )}
           </div>
         ) : (
-          <div className="p-6" aria-busy="true" role="status">
+          // Drawn in the open article's own scroller, frame, header and column (ArticleSkeleton), so what loads in takes the place held.
+          <div aria-busy="true" role="status" className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
             <span className="sr-only-live">Loading article</span>
-            <div aria-hidden="true" className="mx-auto max-w-[46rem] space-y-3">
-              {cachedCard ? (
-                <LoadingCard card={cachedCard} />
-              ) : (
-                <>
-                  <div className="h-7 w-4/5 rounded bg-surface" />
-                  <div className="h-4 w-1/3 rounded bg-surface" />
-                </>
-              )}
-              <div className="h-4 w-full rounded bg-surface" />
-              <div className="h-4 w-full rounded bg-surface" />
-              <div className="h-4 w-2/3 rounded bg-surface" />
-            </div>
+            <ArticleSkeleton card={cachedCard} />
           </div>
         )}
       </div>
@@ -399,8 +405,8 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
       {!pane && <TopBar onBack={back} />}
       {pane && toolbar(true)}
       <div ref={scrollerRef} className="swipe-back-area min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-        <article className="kp-article px-4 pt-4 pb-10 md:px-6" aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
-          <header className="kp-ui mx-auto mb-5 max-w-[min(var(--kp-col),100%)]">
+        <article className={ARTICLE_FRAME} aria-labelledby="article-title" style={{ "--kp-col": columnWidth(dp.articleWidth) } as CSSProperties}>
+          <header className={ARTICLE_HEADER}>
             {/* The line runs in the feed name's direction: "Unread" has a dir of its own, so dir="auto" skips it and an
                 Arabic feed's line sits on the right like its title. */}
             <p dir="auto" className="text-sm text-fg2">
@@ -418,7 +424,7 @@ export function ArticlePane({ id, scope, hasFrom, pane }: Props) {
                 {a.source || a.feed.title}
               </Link>
             </p>
-            <h1 id="article-title" ref={headingRef} tabIndex={-1} dir="auto" className="mt-1 text-title leading-tight font-[650] text-balance wrap-anywhere outline-none [font-family:var(--kp-reading-font)] [font-size-adjust:0.5]">
+            <h1 id="article-title" ref={headingRef} tabIndex={-1} dir="auto" className={ARTICLE_TITLE}>
               <Hl text={a.title || "Untitled"} field="title" feedId={a.feed_id} />
             </h1>
             <p dir="auto" className="mt-2 text-sm text-fg2">
@@ -611,18 +617,5 @@ function Toolbar(p: ToolbarProps) {
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
     </div>
-  );
-}
-
-
-/** What the list already knew of the article (title, source, lead picture), shown while the full text loads. */
-function LoadingCard({ card }: { card: Card }) {
-  const failure = useImageFailure(card.image);
-  return (
-    <>
-      <p data-testid="loading-card-title" className="kp-ui text-2xl leading-tight font-semibold text-balance wrap-anywhere text-fg">{card.title || "Untitled"}</p>
-      <p className="kp-ui text-sm text-fg2">{card.source}</p>
-      {card.image ? <ListImage src={card.image} failure={failure} className="aspect-video w-full rounded-lg bg-surface" /> : null}
-    </>
   );
 }

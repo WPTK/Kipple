@@ -313,7 +313,7 @@ describe("an article that fails to load", () => {
     await screen.findByText("Body of article 1");
   });
 
-  it("offline on a phone: the error screen with Back and Try again, not a skeleton forever (#95)", async () => {
+  it("offline on a phone: says the article isn't saved here, with Go back first and Try again second, not a skeleton forever (#95)", async () => {
     media();
     let offline = false;
     routes({
@@ -330,16 +330,62 @@ describe("an article that fails to load", () => {
     onlineManager.setOnline(false);
     try {
       await userEvent.setup().click(screen.getByText("Article number 1"));
-      await screen.findByRole("heading", { name: "Couldn't open this article" });
+      await screen.findByRole("heading", { level: 1, name: "You're offline" });
+      expect(screen.getByText("This article isn't saved on this device. Go back, or try again when you're connected.")).toBeInTheDocument();
+      expect(screen.queryByText("Couldn't open this article")).toBeNull();
+      expect(document.title).toBe("You're offline - Kipple");
+      // The top bar's Back stays; the way out in the message leads, and Try again follows it.
       expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+      const out = screen.getByRole("button", { name: "Go back" });
+      const again = screen.getByRole("button", { name: "Try again" });
+      expect(out.compareDocumentPosition(again) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(out.className).toContain("bg-accent");
+      expect(again.className).not.toContain("bg-accent");
       // The original is on the web: offline it cannot open either, so it is not offered.
       expect(screen.queryByRole("button", { name: "Read the original" })).toBeNull();
+      // Go back leaves the article for the list it came from.
+      await userEvent.setup().click(out);
+      await screen.findByText("Article number 1");
+      expect(screen.queryByRole("heading", { name: "You're offline" })).toBeNull();
     } finally {
       onlineManager.setOnline(true);
       setBrowserOnline(true);
       vi.restoreAllMocks();
     }
+  });
+
+  it("offline beside the list: the same message, with Try again alone (the list is already there)", async () => {
+    let offline = false;
+    routes({
+      "GET /api/items/1001": () => {
+        if (offline) throw new TypeError("Failed to fetch");
+        return json(detail(1));
+      },
+    });
+    go("/l/unread");
+    await screen.findByText("Article number 1");
+    offline = true;
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    setBrowserOnline(false);
+    onlineManager.setOnline(false);
+    try {
+      await userEvent.setup().click(screen.getByText("Article number 1"));
+      await screen.findByRole("heading", { level: 1, name: "You're offline" });
+      expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    } finally {
+      onlineManager.setOnline(true);
+      setBrowserOnline(true);
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("a real failure while online keeps the generic message", async () => {
+    routes({ "GET /api/items/1001": () => new Response("", { status: 500 }) });
+    go("/i/1001?from=unread");
+    await screen.findByRole("heading", { level: 1, name: "Couldn't open this article" });
+    expect(screen.getByText("The article couldn't be loaded.", { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText("You're offline")).toBeNull();
   });
 
   it("on a phone the Back button is there while the article is still loading", async () => {
