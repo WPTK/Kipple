@@ -106,6 +106,15 @@ func TestRewritePrologLeavesOtherInstructionsAlone(t *testing.T) {
 	require.Equal(t, `<!-- a --><?xml encoding="utf-8"?><rss/>`, string(rewritePrologCopy(`<!-- a --><?xml encoding="latin1"?><rss/>`)))
 }
 
+// An instruction that opens with "<?>" shares its question mark between the opener and the closer; it has no target and
+// is left alone, and so is everything after it.
+func TestRewritePrologIgnoresAnInstructionWithoutAnyBody(t *testing.T) {
+	for _, in := range []string{`<?>`, `<?>x`, `<?><rss/>`} {
+		require.NotPanics(t, func() { require.Equal(t, in, string(rewritePrologCopy(in)), in) })
+	}
+	require.Equal(t, `<??><?xml encoding="utf-8"?><rss/>`, string(rewritePrologCopy(`<??><?xml encoding="latin1"?><rss/>`)))
+}
+
 func rewritePrologCopy(s string) []byte { return rewriteProlog([]byte(s)) }
 
 // Values inside the arrays of a JSON Feed item cost memory like entries do, and they are not entries.
