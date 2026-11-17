@@ -1,1 +1,0 @@
-Stats: the chart hint says "Select a bar" instead of "Tap a bar".

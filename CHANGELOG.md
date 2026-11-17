@@ -8,6 +8,102 @@ All notable changes to Kipple are documented here. The format follows
 
 Changes not yet in a release are one file each in [`changes/`](changes/); they are folded into this file when a release is cut.
 
+## [1.8.0] - 2026-11-16
+
+The database schema changes in this release, so take a backup before updating: going back to an earlier version needs a database restore.
+
+### Added
+
+- Settings: About lists the keys that work, for lists, the sidebar and Esc, and shows them even when the version details cannot be loaded.
+- Feeds and sidebar: Collapse all folders and Expand all folders, remembered on the device.
+- Digest: in an Unread list, each section heading shows its unread count, and a Mark section read button marks that section read with an Undo.
+- Feeds and sidebar: with more than a dozen feeds, a Find a feed field keeps the feeds and folders whose names hold what you type, says how many it shows, and clears with Escape.
+- Import: a large file offers Start fresh, which fills Mark older articles as read with 7 days.
+- Digest and Gazette: on a device whose only pointer is a finger, every story has a Star, and the first time one opens a caption says to press and hold a story for more actions.
+- Windows under 1100 px wide: the sidebar is a narrow rail of icons with a Show sidebar button, and the choice is kept on this device.
+- Stats: while no time zone is chosen and this device's zone is not UTC, Settings > Stats and the Stats screen offer to use this device's zone, and "Not now" is remembered on the device. Nothing is saved until you press it.
+
+### Changed
+
+- Reading: article responses of the web app are smaller, since markup is no longer written as escape sequences.
+- Feeds and sidebar: folder and feed unread badges show the number, as 1.2k above 999, instead of stopping at 99+. The tab bar keeps 99+.
+- Digest: sections cut by reading time load faster on large libraries. This update changes the database schema, so going back to an earlier version needs a database restore.
+- Lists: Editorial and Cards rows are shorter on a phone, with a wider, flatter picture and the star and More buttons on the source line. On a touch screen the buttons are out of view, since swiping and long-press do the same, and stay reachable from a keyboard or screen reader.
+- Feeds: the web app keeps each feed icon for a year and fetches it again only when the icon changes.
+- Feed index: each feed shows its unread count, a menu with Mark feed as read (with Undo), and in sidebar order a Jump to a folder list; the menu button is visible on touch screens.
+- Mark as read: marking one feed or folder read is faster for feeds with many removed articles. This update changes the database schema, so going back to an earlier version needs a database restore.
+- Feed health: the summary counts each feed once, as needs attention, moved, paused or working, so the numbers add up to the total.
+- License: Kipple is under the MIT License, which the Open Source Initiative approves.
+- Reader: an open list shows the "N new articles" pill, quietly, when a scheduled check or a newly added feed brings articles it does not hold, and the unread count in the header follows.
+- Trimmed-article cleanup: the nightly purge of expired article copies reads less when many older records remain.
+- Reader API: feed icons are public and clients keep them for up to a year, also after the icon address setting is turned off, and fetch them again only when the icon changes.
+- Reader: below 1100 px wide the article list takes no more than leaves the article 480 px, unless you have dragged it to another width.
+- Reading time and the reading-length filters count the text shown: the full-text extraction when full text is on for the article, the feed's own text otherwise.
+- Refresh all and retention runs: feeds that are due soonest go first.
+- Reader: long lists, the Gazette, the Digest and the sidebar do less work when a count changes, a row menu opens or a page scrolls.
+- Saved searches: the sidebar badge shows a count for searches with very many matches too, up to 999+. (#901)
+- Lists: an article whose feed date is later than the time it was fetched is listed as of its fetch, not above articles fetched after it. Existing articles are moved to the same rule. (#910)
+- Feed list: opens faster on libraries with many starred articles.
+- Stats: the chart hint says "Select a bar" instead of "Tap a bar".
+- Performance: opening or starring an article, loading the app and the live unread updates do less database work, and the updates are smaller. (#901)
+- Settings: Show swipe tips again also shows the press and hold caption of the Digest and Gazette again.
+- Your year: the cards stand in two columns on a wide screen. Feeds: the Feed index and Feed health rows end in a chevron. Setup: the account step describes apps that connect to Kipple in plain words.
+
+### Fixed
+
+- Reader: a long unbroken word wraps at the edge of the article, and the article toolbar wraps on a narrow window.
+- Reader: marking thousands of articles read does not freeze the tab.
+- Server: at most 512 connections are served at once; a new one takes the place of the oldest idle one.
+- Offline reading: a page of very large articles is cut at 8 MiB of content and continues with the next page marker.
+- Reader: unread counts stay correct after opening an article, without reloading the app's data.
+- Settings: devices with the same name show when each was first used, in the row and in the Copy and Forget buttons, and the confirmations name the device by when it was last seen and first used.
+- Dialogs: every dialog is marked modal for screen readers, and Apply retention now closes with Close when there is nothing to remove.
+- Digest: coming back within thirty minutes shows the page as you left it.
+- Lists: the links in an empty list (Show all articles, Add a filter in Settings) are at least 24 px high.
+- Feeds: entries with no guid that share one link and have different titles are all kept, and an entry keeps its article, read state and star when other entries start or stop sharing its guid or link; entries that share a link and a title still count as one.
+- Feeds: an article dated at or before the very start of 1 January 1970 (UTC), in any time zone, counts as having no date, for articles fetched from then on; stored articles keep their date.
+- Events: after a reconnect, every missed event the server still holds (up to 500) is replayed.
+- Sidebar and Manage feeds: a favorite folder with hundreds of feeds draws 300 rows at a time, with a Show more button and more as the end of the list comes near.
+- Feeds: the retry with a browser User-Agent shares the fetch's 20 second limit.
+- Feed index: reloads only after a mute, an un-mute, a restored article, a changed feed or a gap in the stream.
+- Feed index: a library of hundreds of feeds draws 300 at a time, with a Show more feeds button and more as the end of the page comes near, so the page opens quickly.
+- Feeds: a document with a charset instruction inside it, or with a flood of elements, attributes, entries or namespace declarations, is refused as a parse error instead of being read into memory.
+- Feeds: a document with one start or end tag of more than 1 MiB of markup outside its quoted values is refused as a parse error instead of being read into memory.
+- The Unread list that a first-time reader lands on fills by itself when the starter feeds finish their first fetch, instead of staying on "All caught up" until it is left and reopened.
+- Settings: the reading-font list leaves out fonts of the device that this device does not have; a chosen one that is missing stays, greyed and marked "(not installed)".
+- Feed health: Try now is named "Try now, <feed>", long addresses wrap, and Tab goes from a feed's menu to its repair buttons and Details.
+- Feed health: a library of hundreds of feeds draws 300 rows at a time, with a Show more feeds button and more as the end of the page comes near. Select all still takes every feed that matches.
+- Feeds: a single entry's HTML is cut at 2 MiB before it is cleaned, and an article extracted from a page with more than 60,000 elements is refused without being parsed; a fetch that cuts an entry notes it.
+- Lists: scrolling to later pages no longer adds articles that arrived after the list opened; they come in with a reload or the "n new" pill.
+- Reader: when a refresh you start ends, the open list looks for articles newer than it loaded with (including ones fetched on schedule since) and offers them in the "n new articles" pill. They load by themselves only when you are at the top with no article open, no row focused or selected and no menu or dialog up. A list you are part-way down, or are working in, is never moved.
+- Reader: an article that is not saved on the device and is opened with no connection says "You're offline", with Back and Try again.
+- Import: an outline file with very long folder names or deep nesting is read in bounded memory.
+- Import: the report lists at most 1000 refused folders and 1000 merged folder spellings, and counts the rest.
+- Full text and images: the limits on simultaneous requests count a site, not each host name, and the next full-text slot goes to the feed with the fewest extractions running.
+- Show and sort: Pictures is greyed, with the reason beside it, in the layouts and the search it does not change.
+- Search: a relevance-ordered content page that is cut at its size limit continues from the rank of its last article without running the search again. (#906)
+- Reader API: an article longer than 500,000 bytes is cut before the tag or character reference the limit falls in, so a client never receives a body that ends inside one.
+- Reader: at the larger text sizes on a wide screen the article column keeps about 45 characters per line, with the list giving up width to it.
+- Reader API: icon addresses carry a signed part, so only addresses from the subscription list are served.
+- Reader API: a sign-in attempt waits its turn before its password is checked, including a remembered one.
+- Reader API: marking a whole feed or folder as read is done in short batches, so a large mark-all no longer holds up other writes.
+- Reader API: a client that downloads item ids or contents slowly no longer holds a database read connection while it does.
+- Setup and feed icons: an uploaded backup that breaks the check is refused, and an icon lookup that breaks is recorded as failed and retried later, instead of stopping Kipple.
+- Restore: a restore confirmed in the browser is installed only once the backup's record of how its articles were cleaned is removed, so every article is cleaned again at the first start; if the record cannot be removed, the start stops and the restore is tried again at the next one.
+- Feeds: a Retry-After from a redirect target delays only the feed that was redirected, not other feeds on the same host.
+- Settings and Stats: the focus ring on a choice in a segmented control stays clear of the control's border and reaches 3:1 in every theme.
+- Offline launch: the stored app shell follows a change to the images setting.
+- Sidebar: Favorites, Saved searches and Feeds are labels, not headings, so a screen reader meets the screen's title first.
+- Stats: the JSONL export is compressed for clients that accept it.
+- Reader and lists: the loading placeholders for an opening article and for Editorial, Cards and Inbox rows match the height of what replaces them, so the page stays still while it loads.
+- Images: an original sent while its thumbnail is still being made, or for a refused one, is no longer kept on the device in the thumbnail's place; copies already kept are cleared once on update.
+- Your year no longer says "Nothing read" when your browser's date is behind the statistics time zone. The summary now accepts a start date alone and runs it through today in the statistics time zone, and Your year asks for the current year that way.
+
+### Security
+
+- Feeds: Kipple refuses to connect to the Azure host agent address 168.63.129.16, as it does for other addresses only the machine itself can reach.
+- Built with Go 1.27.4, which fixes a vulnerability in the standard library (GO-2026-6859).
+
 ## [1.7.0] - 2026-11-08
 
 ### Added
@@ -1321,7 +1417,8 @@ Phase 1: fetch, store and Reader API.
 - One-file status page at `/_status` with login, feed health, refresh and live events.
 - Multi-stage Docker image and CI.
 
-[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/WPTK/Kipple/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/WPTK/Kipple/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/WPTK/Kipple/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/WPTK/Kipple/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/WPTK/Kipple/compare/v1.5.0...v1.5.1

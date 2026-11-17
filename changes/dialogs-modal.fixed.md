@@ -1,1 +1,0 @@
-Dialogs: every dialog is marked modal for screen readers, and Apply retention now closes with Close when there is nothing to remove.

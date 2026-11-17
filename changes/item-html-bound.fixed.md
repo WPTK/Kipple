@@ -1,1 +1,0 @@
-Feeds: a single entry's HTML is cut at 2 MiB before it is cleaned, and an article extracted from a page with more than 60,000 elements is refused without being parsed; a fetch that cuts an entry notes it.
