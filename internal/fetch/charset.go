@@ -198,10 +198,11 @@ func rewriteProlog(b []byte) []byte {
 		rest := b[i:]
 		switch {
 		case bytes.HasPrefix(rest, []byte("<?")):
-			end := bytes.Index(rest, []byte("?>"))
+			end := bytes.Index(rest[2:], []byte("?>")) // after the "<?", whose "?" is not the start of the closer
 			if end < 0 {
 				return finishProlog(out, b, last)
 			}
+			end += 2
 			if from, to, ok := declaredEncoding(rest[2:end]); ok && string(rest[2+from:2+to]) != "utf-8" {
 				if out == nil {
 					out = make([]byte, 0, len(b))
